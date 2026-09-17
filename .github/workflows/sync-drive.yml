@@ -1,0 +1,46 @@
+name: Sync Google Drive
+
+on:
+  schedule:
+    # A cada 30 minutos. Ajuste como preferir (sintaxe cron em UTC).
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}   # permite rodar manualmente na aba "Actions"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r scripts/requirements.txt
+
+      - name: Sincronizar Google Drive -> docs/
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python scripts/sync_drive.py
+
+      - name: Gerar página do hub (docs/index.html)
+        run: python scripts/generate_index.py
+
+      - name: Commitar mudanças (se houver)
+        run: |
+          git config user.name "produtec-drive-sync"
+          git config user.email "actions@github.com"
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "Nada novo para sincronizar."
+          else
+            git commit -m "docs: sincronização automática do Google Drive"
+            git push
+          fi
