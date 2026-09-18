@@ -1,17 +1,47 @@
 #!/usr/bin/env python3
 """
-Gera docs/index.html: uma página simples que lista, em árvore, tudo que foi
-sincronizado do Google Drive. É essa página que o GitHub Pages serve como
-o "site" do hub.
+Gera docs/index.html: um hub navegável (menu lateral com categorias fixas,
+busca, cards de documentos e pré-visualização dentro da própria página) no
+estilo de uma central de conhecimento com a identidade visual da Suri.
+
+Categorias fixas do menu lateral: Documentos, Requisitos, Deploy (+ "Outros"
+se houver arquivos fora dessas pastas). Para um documento aparecer em uma
+categoria, ele precisa estar dentro de uma pasta com esse nome (sem acento
+e sem diferenciar maiúsculas/minúsculas) logo dentro da pasta do Drive
+sincronizada, por exemplo:
+
+  Produtec - Hub/
+    Documentos/...
+    Requisitos/...
+    Deploy/...
+
+Se uma dessas pastas de categoria tiver dentro uma planilha do Google
+chamada "Calendário" (colunas Data/Título/Descrição/Link), o hub mostra
+também um calendário de eventos para essa categoria (ver sync_drive.py).
 
 Roda depois de sync_drive.py (veja .github/workflows/sync-drive.yml).
 """
 
 import html
+import json
 import os
+import unicodedata
 
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
-EXCLUDE = {".sync-manifest.json", "index.html"}
+CALENDAR_PATH = os.path.join(DOCS_DIR, ".calendar-data.json")
+EXCLUDE = {".sync-manifest.json", ".calendar-data.json", "index.html"}
+
+CATEGORY_ORDER = ["Documentos", "Requisitos", "Deploy"]
+FALLBACK_CATEGORY = "Outros"
+
+# Identidade visual Suri
+ACCENT = "#000f9b"        # Marine Blue
+ACCENT_DARK = "#020519"   # Deep Blue
+STRONG_BLUE = "#2e1de8"   # Strong Blue
+BRAND_GREEN = "#00b914"   # WhatsApp Green
+BRAND_GREEN_ALT = "#25d366"  # WhatsApp Apple
+BRAND_BLUE = "#4a54ff"    # Suri Blue
+SNOW_BLUE = "#e4eaf2"     # cor da barra lateral
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="pt-BR">
@@ -19,102 +49,750 @@ PAGE_TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hub Produtec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {{
-    --bg: #ffffff;
-    --text: #1a1a1a;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --accent: #b45309;
-  }}
-  @media (prefers-color-scheme: dark) {{
-    :root {{
-      --bg: #14110f;
-      --text: #f3f1ee;
-      --muted: #a39c93;
-      --border: #2e2925;
-      --accent: #e8b169;
-    }}
+    --accent: {accent};
+    --accent-dark: {accent_dark};
+    --strong-blue: {strong_blue};
+    --brand-green: {brand_green};
+    --brand-green-alt: {brand_green_alt};
+    --brand-blue: {brand_blue};
+    --accent-soft: rgba(0, 15, 155, 0.08);
+
+    /* barra lateral: Snow Blue, com a logo azul */
+    --sidebar-bg: {snow_blue};
+    --sidebar-text: #16181f;
+    --sidebar-muted: #666b7a;
+    --sidebar-border: #d4dceb;
+
+    /* área de conteúdo: fundo azul marine */
+    --page-text: #ffffff;
+    --page-muted: rgba(255, 255, 255, 0.75);
+
+    /* cards, busca, modal e calendário: sempre em superfícies brancas */
+    --card-bg: #ffffff;
+    --card-text: #16181f;
+    --card-muted: #666b7a;
+    --border: #e4e6ef;
+
+    --bg: #f4f5fa;
+    --overlay: rgba(2, 5, 25, 0.65);
   }}
   * {{ box-sizing: border-box; }}
   body {{
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 40px 20px 80px;
-    line-height: 1.5;
+    margin: 0;
+    font-family: 'Sora', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--sidebar-bg);
+    color: var(--card-text);
+    display: flex;
+    min-height: 100vh;
   }}
-  h1 {{ font-size: 1.75rem; margin-bottom: 4px; }}
-  p.subtitle {{ color: var(--muted); margin-top: 0; }}
-  ul {{ list-style: none; padding-left: 1.25rem; }}
-  ul.root {{ padding-left: 0; }}
-  li {{ margin: 6px 0; }}
-  .folder {{ font-weight: 600; }}
-  a {{
-    color: var(--text);
-    text-decoration: none;
+
+  /* --- Sidebar & logo --- */
+  .sidebar {{
+    width: 264px;
+    flex-shrink: 0;
+    background: var(--sidebar-bg);
+    color: var(--sidebar-text);
+    border-right: 1px solid var(--sidebar-border);
+    padding: 32px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }}
+  .logo {{
+    margin-bottom: 6px;
+  }}
+  .logo img {{
+    display: block;
+    height: 42px;
+    width: auto;
+  }}
+  .sidebar p.tagline {{
+    margin: 0 0 30px;
+    color: var(--brand-green);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }}
+  .nav-item {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--sidebar-text);
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 11px 12px;
+    border-radius: 9px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }}
+  .nav-item .count {{
+    margin-left: auto;
+    background: rgba(0, 15, 155, 0.10);
+    color: var(--accent);
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+  }}
+  .nav-item:hover {{ background: var(--accent-soft); }}
+  .nav-item.active {{ background: linear-gradient(135deg, var(--accent), var(--strong-blue)); color: #fff; font-weight: 700; }}
+  .nav-item.active .count {{ background: rgba(255,255,255,0.25); color: #fff; }}
+
+  /* --- Main content (fundo Marine Blue) --- */
+  .main {{
+    flex: 1;
+    padding: 40px 44px;
+    max-width: 1040px;
+    background: linear-gradient(160deg, var(--accent) 0%, var(--strong-blue) 55%, var(--accent-dark) 100%);
+    color: var(--page-text);
+    min-height: 100vh;
+  }}
+  .main-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 26px;
+  }}
+  .main-header h2 {{ margin: 0 0 4px; font-size: 1.7rem; font-weight: 700; color: var(--page-text); }}
+  .main-header p {{ margin: 0; color: var(--page-muted); }}
+  .search {{
+    width: 280px;
+    max-width: 100%;
+    padding: 11px 14px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--card-text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }}
+  .search:focus {{ outline: 2px solid var(--brand-blue); outline-offset: 1px; }}
+
+  /* --- Calendário de eventos (por categoria) --- */
+  #cal-wrap {{ margin-bottom: 26px; }}
+  .updates-cal {{ display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }}
+  .updates-cal-calendar {{
+    flex: none;
+    width: 280px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }}
+  .cal-head {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }}
+  .cal-head button {{
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+  }}
+  .cal-head button:hover {{ background: var(--strong-blue); color: #fff; }}
+  .cal-month-label {{ font-weight: 700; font-size: 0.85rem; color: var(--card-text); text-transform: capitalize; }}
+  .cal-weekdays {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 6px; }}
+  .cal-weekdays span {{ font-size: 0.65rem; text-align: center; color: var(--card-muted); font-weight: 600; }}
+  .cal-grid {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }}
+  .cal-day {{
+    position: relative;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    border-radius: 8px;
+    color: var(--card-muted);
+  }}
+  .cal-day.empty {{ visibility: hidden; }}
+  .cal-day.today {{ box-shadow: inset 0 0 0 1.5px var(--strong-blue); }}
+  .cal-day.has-update {{ cursor: pointer; color: var(--card-text); font-weight: 700; background: var(--accent-soft); }}
+  .cal-day.has-update:hover {{ background: var(--accent); color: #fff; }}
+  .cal-day.has-update.selected {{ background: var(--accent); color: #fff; }}
+  .cal-day.has-update::after {{
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-green), var(--brand-green-alt));
+  }}
+  .cal-day.has-update.selected::after {{ background: #fff; }}
+  .updates-cal-list {{ flex: 1; min-width: 240px; }}
+  .updates-cal-hint {{
+    font-size: 0.82rem;
+    color: var(--card-muted);
+    font-style: italic;
+    padding: 26px 18px;
+    text-align: center;
+    background: var(--card-bg);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }}
+  .cal-events {{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }}
+  .cal-event {{ padding: 16px 0; border-bottom: 1px solid var(--border); }}
+  .cal-event:last-child {{ border-bottom: none; }}
+  .cal-event-date {{ font-size: 0.72rem; color: var(--card-muted); margin-bottom: 4px; }}
+  .cal-event h4 {{ margin: 0 0 6px; font-size: 0.95rem; font-weight: 700; color: var(--card-text); }}
+  .cal-event h4 a {{ color: var(--accent); text-decoration: underline; text-decoration-color: var(--border); }}
+  .cal-event p {{ margin: 0; font-size: 0.85rem; color: var(--card-muted); line-height: 1.5; }}
+  @media (max-width: 720px) {{
+    .updates-cal-calendar {{ width: 100%; }}
+  }}
+
+  .cards {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+  }}
+  .card {{
+    display: block;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--card-text);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  }}
+  .card:hover {{
+    border-color: var(--brand-blue);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+  }}
+  .card .icon {{ font-size: 1.5rem; }}
+  .card .name {{ display: block; margin-top: 10px; font-weight: 600; word-break: break-word; }}
+  .card .path {{ display: block; margin-top: 4px; font-size: 0.78rem; color: var(--card-muted); word-break: break-word; }}
+  .empty {{ color: var(--page-muted); font-style: italic; }}
+  footer {{ margin-top: 44px; color: var(--page-muted); font-size: 0.8rem; }}
+
+  /* --- In-page preview modal --- */
+  .modal-overlay {{
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--overlay);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }}
+  .modal-overlay.open {{ display: flex; }}
+  .modal {{
+    background: var(--card-bg);
+    color: var(--card-text);
+    border-radius: 14px;
+    width: min(1000px, 100%);
+    height: min(85vh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  }}
+  .modal-header {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
     border-bottom: 1px solid var(--border);
   }}
-  a:hover {{ border-color: var(--accent); color: var(--accent); }}
-  .empty {{ color: var(--muted); font-style: italic; }}
-  footer {{ margin-top: 48px; color: var(--muted); font-size: 0.85rem; }}
+  .modal-header .name {{ font-weight: 700; flex: 1; word-break: break-word; }}
+  .modal-header a, .modal-header button {{
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 7px;
+  }}
+  .modal-header a:hover, .modal-header button:hover {{ background: var(--bg); }}
+  .modal-body {{ flex: 1; overflow: auto; background: var(--bg); }}
+  .modal-body iframe, .modal-body img {{
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+    object-fit: contain;
+  }}
+  .modal-body .no-preview {{
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--card-muted);
+    text-align: center;
+    padding: 24px;
+  }}
+  .modal-body .no-preview a {{
+    color: #fff;
+    background: var(--strong-blue);
+    padding: 10px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+  }}
+
+  @media (max-width: 720px) {{
+    body {{ flex-direction: column; }}
+    .sidebar {{ width: 100%; height: auto; position: relative; }}
+    .main {{ padding: 26px 20px; }}
+    .modal {{ height: 92vh; }}
+  }}
 </style>
 </head>
 <body>
-  <h1>Hub Produtec</h1>
-  <p class="subtitle">Documentação sincronizada automaticamente do Google Drive.</p>
-  {body}
-  <footer>Atualizado automaticamente pelo GitHub Actions a cada sincronização.</footer>
+  <div class="sidebar">
+    <div class="logo">
+      <img src="assets/logo-suri.png" alt="Suri Shop">
+    </div>
+    <p class="tagline">Hub Produtec</p>
+    <div id="nav"></div>
+  </div>
+  <div class="main">
+    <div class="main-header">
+      <div>
+        <h2 id="section-title">Documentos</h2>
+        <p id="section-subtitle"></p>
+      </div>
+      <input class="search" id="search" type="text" placeholder="Buscar nesta seção...">
+    </div>
+    <div id="cal-wrap"></div>
+    <div class="cards" id="cards"></div>
+    <footer>Atualizado automaticamente pelo GitHub Actions a cada sincronização com o Google Drive.</footer>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="name" id="modal-name"></span>
+        <a id="modal-open" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
+        <button id="modal-close">Fechar ✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    const DATA = {data_json};
+
+    const OFFICE_EXTS = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
+    const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+
+    const nav = document.getElementById('nav');
+    const cardsEl = document.getElementById('cards');
+    const titleEl = document.getElementById('section-title');
+    const subtitleEl = document.getElementById('section-subtitle');
+    const searchEl = document.getElementById('search');
+    const overlay = document.getElementById('modal-overlay');
+    const modalName = document.getElementById('modal-name');
+    const modalOpen = document.getElementById('modal-open');
+    const modalBody = document.getElementById('modal-body');
+    const modalClose = document.getElementById('modal-close');
+
+    let active = DATA.length ? DATA[0].category : null;
+    const calState = {{}}; // estado (mês/ano/seleção) de cada calendário, por categoria
+    const MONTH_NAMES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+
+    function pad2(n) {{ return n < 10 ? '0' + n : '' + n; }}
+
+    function escapeHtml(s) {{
+      const d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }}
+
+    function formatDateLong(dateStr) {{
+      const p = dateStr.split('-');
+      return parseInt(p[2], 10) + ' de ' + MONTH_NAMES[parseInt(p[1], 10) - 1] + ' de ' + p[0];
+    }}
+
+    function ensureCalState(section) {{
+      if (calState[section.category]) return calState[section.category];
+      const byDate = {{}};
+      (section.calendar || []).forEach(u => {{ (byDate[u.date] = byDate[u.date] || []).push(u); }});
+      const dates = Object.keys(byDate).sort();
+      let cur;
+      if (dates.length) {{
+        const parts = dates[dates.length - 1].split('-');
+        cur = {{ y: parseInt(parts[0], 10), m: parseInt(parts[1], 10) - 1 }};
+      }} else {{
+        const now = new Date();
+        cur = {{ y: now.getFullYear(), m: now.getMonth() }};
+      }}
+      const state = {{ y: cur.y, m: cur.m, selected: dates.length ? dates[dates.length - 1] : null, byDate }};
+      calState[section.category] = state;
+      return state;
+    }}
+
+    function renderCalendar(section) {{
+      const calWrap = document.getElementById('cal-wrap');
+      if (!section.calendar || !section.calendar.length) {{
+        calWrap.style.display = 'none';
+        calWrap.innerHTML = '';
+        return;
+      }}
+      calWrap.style.display = '';
+      const state = ensureCalState(section);
+
+      calWrap.innerHTML =
+        '<div class="updates-cal">' +
+          '<div class="updates-cal-calendar">' +
+            '<div class="cal-head">' +
+              '<button type="button" data-dir="-1" aria-label="Mês anterior">&lsaquo;</button>' +
+              '<div class="cal-month-label"></div>' +
+              '<button type="button" data-dir="1" aria-label="Próximo mês">&rsaquo;</button>' +
+            '</div>' +
+            '<div class="cal-weekdays"><span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span></div>' +
+            '<div class="cal-grid"></div>' +
+          '</div>' +
+          '<div class="updates-cal-list"></div>' +
+        '</div>';
+
+      const monthLabel = calWrap.querySelector('.cal-month-label');
+      const grid = calWrap.querySelector('.cal-grid');
+      const listBox = calWrap.querySelector('.updates-cal-list');
+      const prevBtn = calWrap.querySelector('[data-dir="-1"]');
+      const nextBtn = calWrap.querySelector('[data-dir="1"]');
+
+      function paintGrid() {{
+        monthLabel.textContent = MONTH_NAMES[state.m] + ' de ' + state.y;
+        grid.innerHTML = '';
+        const firstDay = new Date(state.y, state.m, 1).getDay();
+        const daysInMonth = new Date(state.y, state.m + 1, 0).getDate();
+        const todayStr = new Date().toISOString().slice(0, 10);
+        for (let i = 0; i < firstDay; i++) {{
+          const empty = document.createElement('div');
+          empty.className = 'cal-day empty';
+          grid.appendChild(empty);
+        }}
+        for (let d = 1; d <= daysInMonth; d++) {{
+          const dateStr = state.y + '-' + pad2(state.m + 1) + '-' + pad2(d);
+          const cell = document.createElement('div');
+          cell.className = 'cal-day';
+          cell.textContent = d;
+          if (dateStr === todayStr) cell.classList.add('today');
+          if (state.byDate[dateStr]) {{
+            cell.classList.add('has-update');
+            if (dateStr === state.selected) cell.classList.add('selected');
+            cell.addEventListener('click', () => {{
+              state.selected = (state.selected === dateStr) ? null : dateStr;
+              paintGrid();
+              paintList();
+            }});
+          }}
+          grid.appendChild(cell);
+        }}
+      }}
+
+      function paintList() {{
+        if (!state.selected) {{
+          const hasAny = Object.keys(state.byDate).length > 0;
+          listBox.innerHTML = '<div class="updates-cal-hint">' +
+            (hasAny ? 'Selecione uma data destacada no calendário para ver os detalhes.' : 'Nenhum evento registrado ainda.') +
+            '</div>';
+          return;
+        }}
+        const items = state.byDate[state.selected] || [];
+        let out = '<div class="cal-events">';
+        items.forEach((u, idx) => {{
+          const titleHtml = u.link
+            ? '<a href="' + u.link + '" target="_blank" rel="noopener">' + escapeHtml(u.title) + '</a>'
+            : escapeHtml(u.title);
+          out += '<div class="cal-event"' + (idx === items.length - 1 ? ' style="border-bottom:none;"' : '') + '>' +
+            '<div class="cal-event-date">' + formatDateLong(state.selected) + '</div>' +
+            '<h4>' + titleHtml + '</h4>' +
+            (u.desc ? '<p>' + escapeHtml(u.desc) + '</p>' : '') +
+            '</div>';
+        }});
+        out += '</div>';
+        listBox.innerHTML = out;
+      }}
+
+      prevBtn.addEventListener('click', () => {{
+        state.m--; if (state.m < 0) {{ state.m = 11; state.y--; }}
+        paintGrid();
+      }});
+      nextBtn.addEventListener('click', () => {{
+        state.m++; if (state.m > 11) {{ state.m = 0; state.y++; }}
+        paintGrid();
+      }});
+
+      paintGrid();
+      paintList();
+    }}
+
+    function extOf(name) {{
+      const parts = name.split('.');
+      return parts.length > 1 ? parts.pop().toLowerCase() : '';
+    }}
+
+    function openPreview(item) {{
+      const absoluteUrl = new URL(item.href, window.location.href).href;
+      modalName.textContent = item.name;
+      modalOpen.href = absoluteUrl;
+      const ext = extOf(item.name);
+      modalBody.innerHTML = '';
+
+      if (ext === 'pdf') {{
+        const frame = document.createElement('iframe');
+        frame.src = absoluteUrl;
+        modalBody.appendChild(frame);
+      }} else if (IMAGE_EXTS.includes(ext)) {{
+        const img = document.createElement('img');
+        img.src = absoluteUrl;
+        modalBody.appendChild(img);
+      }} else if (OFFICE_EXTS.includes(ext)) {{
+        const frame = document.createElement('iframe');
+        frame.src = 'https://docs.google.com/gview?url=' + encodeURIComponent(absoluteUrl) + '&embedded=true';
+        modalBody.appendChild(frame);
+      }} else {{
+        modalBody.innerHTML = '<div class="no-preview"><p>Pré-visualização não disponível para este tipo de arquivo.</p><a href="' + absoluteUrl + '" target="_blank" rel="noopener">Abrir arquivo</a></div>';
+      }}
+      overlay.classList.add('open');
+    }}
+
+    function closePreview() {{
+      overlay.classList.remove('open');
+      modalBody.innerHTML = '';
+    }}
+
+    modalClose.addEventListener('click', closePreview);
+    overlay.addEventListener('click', (e) => {{ if (e.target === overlay) closePreview(); }});
+    document.addEventListener('keydown', (e) => {{ if (e.key === 'Escape') closePreview(); }});
+
+    function render() {{
+      nav.innerHTML = '';
+      DATA.forEach(section => {{
+        const btn = document.createElement('button');
+        btn.className = 'nav-item' + (section.category === active ? ' active' : '');
+        btn.innerHTML = '<span>' + section.icon + ' ' + section.category + '</span>' +
+          '<span class="count">' + section.items.length + '</span>';
+        btn.onclick = () => {{ active = section.category; searchEl.value = ''; render(); }};
+        nav.appendChild(btn);
+      }});
+
+      const section = DATA.find(s => s.category === active);
+      if (!section) return;
+      titleEl.textContent = section.category;
+      subtitleEl.textContent = section.items.length + (section.items.length === 1 ? ' documento' : ' documentos');
+
+      renderCalendar(section);
+
+      const query = searchEl.value.trim().toLowerCase();
+      const items = section.items.filter(it => it.name.toLowerCase().includes(query));
+
+      cardsEl.innerHTML = '';
+      if (!items.length) {{
+        cardsEl.innerHTML = '<p class="empty">Nenhum documento encontrado.</p>';
+        return;
+      }}
+      items.forEach(it => {{
+        const btn = document.createElement('button');
+        btn.className = 'card';
+        btn.innerHTML = '<span class="icon">' + it.icon + '</span>' +
+          '<span class="name">' + it.name + '</span>' +
+          (it.subpath ? '<span class="path">' + it.subpath + '</span>' : '');
+        btn.onclick = () => openPreview(it);
+        cardsEl.appendChild(btn);
+      }});
+    }}
+
+    searchEl.addEventListener('input', render);
+    render();
+  </script>
 </body>
 </html>
-"""
+""" 
+FILE_ICONS = {
+    ".pdf": "\U0001F4C4",
+    ".xlsx": "\U0001F4CA",
+    ".xls": "\U0001F4CA",
+    ".pptx": "\U0001F4FD",
+    ".ppt": "\U0001F4FD",
+    ".doc": "\U0001F4C4",
+    ".docx": "\U0001F4C4",
+    ".png": "\U0001F5BC",
+    ".jpg": "\U0001F5BC",
+    ".jpeg": "\U0001F5BC",
+    ".gif": "\U0001F5BC",
+    ".svg": "\U0001F5BC",
+}
+DEFAULT_ICON = "\U0001F4C1"
 
 
-def build_tree(path):
-    entries = []
+def strip_accents(s):
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def load_calendar_data():
+    """Lê docs/.calendar-data.json (gerado pelo sync_drive.py a partir de uma
+    planilha 'Calendário' dentro de uma pasta de categoria). Se não existir
+    ou estiver corrompido, simplesmente não há calendários a mostrar."""
+    if os.path.exists(CALENDAR_PATH):
+        try:
+            with open(CALENDAR_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def file_icon(name):
+    _, ext = os.path.splitext(name)
+    return FILE_ICONS.get(ext.lower(), DEFAULT_ICON)
+
+
+def collect_files(path, rel_prefix=""):
+    """Recursively collect files under `path`, returning list of (name, href_rel, subpath_label)."""
+    results = []
     if not os.path.isdir(path):
-        return entries
+        return results
     for name in sorted(os.listdir(path), key=str.lower):
         if name in EXCLUDE or name.startswith("."):
             continue
         full = os.path.join(path, name)
         if os.path.isdir(full):
-            entries.append((name, build_tree(full), True))
+            results.extend(collect_files(full, rel_prefix + name + "/"))
         else:
-            entries.append((name, None, False))
-    return entries
+            results.append((name, rel_prefix + name, rel_prefix.rstrip("/")))
+    return results
 
 
-def render(entries, rel="", root=False):
-    if not entries:
-        return '<p class="empty">Nenhum documento sincronizado ainda.</p>'
-    css_class = ' class="root"' if root else ""
-    parts = [f"<ul{css_class}>"]
-    for name, children, is_dir in entries:
-        esc_name = html.escape(name)
-        if is_dir:
-            child_rel = f"{rel}{name}/"
-            parts.append(
-                f"<li><span class=\"folder\">\U0001F4C1 {esc_name}</span>"
-                f"{render(children, child_rel)}</li>"
-            )
+def build_categories():
+    by_category = {cat: [] for cat in CATEGORY_ORDER}
+    by_category[FALLBACK_CATEGORY] = []
+
+    if not os.path.isdir(DOCS_DIR):
+        return by_category
+
+    top_entries = sorted(os.listdir(DOCS_DIR), key=str.lower)
+    matched_dirs = set()
+
+    for cat in CATEGORY_ORDER:
+        for entry in top_entries:
+            if entry in EXCLUDE or entry.startswith("."):
+                continue
+            full = os.path.join(DOCS_DIR, entry)
+            if os.path.isdir(full) and strip_accents(entry).lower() == strip_accents(cat).lower():
+                matched_dirs.add(entry)
+                for name, href, subpath in collect_files(full):
+                    by_category[cat].append({
+                        "name": name,
+                        "href": href,
+                        "subpath": subpath,
+                        "icon": file_icon(name),
+                    })
+
+    # Anything not inside a matched category folder goes to "Outros"
+    for entry in top_entries:
+        if entry in EXCLUDE or entry.startswith("."):
+            continue
+        if entry in matched_dirs:
+            continue
+        full = os.path.join(DOCS_DIR, entry)
+        if os.path.isdir(full):
+            for name, href, subpath in collect_files(full, entry + "/"):
+                by_category[FALLBACK_CATEGORY].append({
+                    "name": name,
+                    "href": href,
+                    "subpath": subpath,
+                    "icon": file_icon(name),
+                })
         else:
-            href = f"{rel}{name}"
-            parts.append(f'<li><a href="{html.escape(href)}">\U0001F4C4 {esc_name}</a></li>')
-    parts.append("</ul>")
-    return "".join(parts)
+            by_category[FALLBACK_CATEGORY].append({
+                "name": entry,
+                "href": entry,
+                "subpath": "",
+                "icon": file_icon(entry),
+            })
+
+    return by_category
+
+
+CATEGORY_ICONS = {
+    "Documentos": "\U0001F4C4",
+    "Requisitos": "\U0001F4CB",
+    "Deploy": "\U0001F680",
+    "Outros": "\U0001F4C1",
+}
 
 
 def main():
-    tree = build_tree(DOCS_DIR)
-    body = render(tree, root=True)
-    page = PAGE_TEMPLATE.format(body=body)
+    by_category = build_categories()
+    calendar_data = load_calendar_data()
+
+    sections = []
+    for cat in CATEGORY_ORDER:
+        sections.append({
+            "category": cat,
+            "icon": CATEGORY_ICONS.get(cat, DEFAULT_ICON),
+            "items": by_category[cat],
+            "calendar": calendar_data.get(cat, []),
+        })
+    if by_category[FALLBACK_CATEGORY]:
+        sections.append({
+            "category": FALLBACK_CATEGORY,
+            "icon": CATEGORY_ICONS.get(FALLBACK_CATEGORY, DEFAULT_ICON),
+            "items": by_category[FALLBACK_CATEGORY],
+            "calendar": [],
+        })
+
+    data_json = json.dumps(sections, ensure_ascii=False)
+    page = PAGE_TEMPLATE.format(
+        accent=ACCENT,
+        accent_dark=ACCENT_DARK,
+        strong_blue=STRONG_BLUE,
+        brand_green=BRAND_GREEN,
+        brand_green_alt=BRAND_GREEN_ALT,
+        brand_blue=BRAND_BLUE,
+        snow_blue=SNOW_BLUE,
+        data_json=data_json,
+    )
+
     os.makedirs(DOCS_DIR, exist_ok=True)
     with open(os.path.join(DOCS_DIR, "index.html"), "w", encoding="utf-8") as f:
         f.write(page)
-    print("docs/index.html gerado.")
+    print("docs/index.html gerado (com logo, fonte Sora e pré-visualização in-page).")
 
 
 if __name__ == "__main__":
