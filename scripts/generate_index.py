@@ -51,111 +51,153 @@ PAGE_TEMPLATE = """<!doctype html>
 <title>Hub Produtec</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
 <style>
   :root {{
-    --accent: {accent};
-    --accent-dark: {accent_dark};
-    --strong-blue: {strong_blue};
+    --accent: {brand_blue};       /* Suri Blue: accent principal (links, foco, estado ativo) */
+    --accent-2: {strong_blue};    /* Strong Blue: accent secundário */
+    --accent-dark: {accent_dark}; /* Deep Blue */
+    --marine: {marine};           /* Marine Blue */
     --brand-green: {brand_green};
     --brand-green-alt: {brand_green_alt};
     --brand-blue: {brand_blue};
-    --accent-soft: rgba(0, 15, 155, 0.08);
+    --accent-soft: rgba(74, 84, 255, 0.14);
+    --chip-bg: {snow_blue};       /* Snow Blue: fundo dos chips de logo/ícones */
 
-    /* barra lateral: Snow Blue, com a logo azul */
-    --sidebar-bg: {snow_blue};
-    --sidebar-text: #16181f;
-    --sidebar-muted: #666b7a;
-    --sidebar-border: #d4dceb;
+    /* fundo geral: azul-marinho, escuro mas não pesado */
+    --page-bg: #141936;
+    --page-text: #f7f8ff;
+    --page-muted: #b2b8d6;
 
-    /* área de conteúdo: fundo azul marine */
-    --page-text: #ffffff;
-    --page-muted: rgba(255, 255, 255, 0.75);
+    /* barra lateral: um tom mais próximo do fundo, levemente distinta */
+    --sidebar-bg: #10142e;
+    --sidebar-text: #f7f8ff;
+    --sidebar-muted: #a3a9cb;
+    --sidebar-border: rgba(255, 255, 255, 0.09);
 
-    /* cards, busca, modal e calendário: sempre em superfícies brancas */
-    --card-bg: #ffffff;
-    --card-text: #16181f;
-    --card-muted: #666b7a;
-    --border: #e4e6ef;
+    /* cards e superfícies elevadas: nitidamente mais claras que o fundo */
+    --card-bg: #1e2550;
+    --card-text: #f7f8ff;
+    --card-muted: #aeb4d6;
+    --border: rgba(255, 255, 255, 0.12);
 
-    --bg: #f4f5fa;
-    --overlay: rgba(2, 5, 25, 0.65);
+    --bg: #191f45;
+    --overlay: rgba(6, 8, 24, 0.75);
+
+    /* dupla tipográfica: Bricolage Grotesque nos títulos/destaques,
+       Sora no resto (menu, texto corrido, botões) */
+    --font-display: 'Bricolage Grotesque', 'Sora', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-body: 'Sora', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }}
   * {{ box-sizing: border-box; }}
+  html {{ font-size: 17px; }}
   body {{
     margin: 0;
-    font-family: 'Sora', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--sidebar-bg);
+    font-family: var(--font-body);
+    background: radial-gradient(ellipse 1300px 800px at 15% -10%, rgba(74, 84, 255, 0.13), transparent), var(--page-bg);
     color: var(--card-text);
+    line-height: 1.55;
     display: flex;
     min-height: 100vh;
   }}
 
   /* --- Sidebar & logo --- */
   .sidebar {{
-    width: 264px;
+    width: 260px;
     flex-shrink: 0;
     background: var(--sidebar-bg);
     color: var(--sidebar-text);
     border-right: 1px solid var(--sidebar-border);
-    padding: 32px 22px;
+    padding: 36px 20px;
     position: sticky;
     top: 0;
     height: 100vh;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
   }}
   .logo {{
-    margin-bottom: 6px;
+    margin-top: auto;
+    padding-top: 30px;
   }}
-  .logo img {{
+  .logo-chip {{
+    display: inline-flex;
+    align-items: center;
+    background: var(--chip-bg);
+    border-radius: 12px;
+    padding: 10px 14px;
+  }}
+  .logo-chip img {{
     display: block;
-    height: 42px;
+    height: 28px;
     width: auto;
   }}
   .sidebar p.tagline {{
-    margin: 0 0 30px;
-    color: var(--brand-green);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
+    margin: 0 0 26px;
+    color: var(--accent);
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    line-height: 1.1;
+  }}
+  .nav-divider {{
+    height: 1px;
+    background: var(--sidebar-border);
+    margin: 8px 4px 12px;
   }}
   .nav-item {{
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 11px;
     width: 100%;
     text-align: left;
     background: none;
     border: none;
+    border-left: 3px solid transparent;
     color: var(--sidebar-text);
     font-family: inherit;
-    font-size: 0.95rem;
+    font-size: 1.08rem;
     font-weight: 500;
-    padding: 11px 12px;
-    border-radius: 9px;
+    padding: 13px 12px;
+    border-radius: 8px;
     cursor: pointer;
-    margin-bottom: 4px;
-    transition: background 0.15s ease, color 0.15s ease;
+    margin-bottom: 2px;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }}
+  .nav-item .nav-icon {{
+    width: 25px;
+    height: 25px;
+    border-radius: 7px;
+    object-fit: cover;
+    flex-shrink: 0;
+    display: block;
+  }}
+  .nav-item .nav-label {{ flex: 1; }}
   .nav-item .count {{
     margin-left: auto;
-    background: rgba(0, 15, 155, 0.10);
-    color: var(--accent);
-    padding: 1px 9px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--sidebar-muted);
+    padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.84rem;
+    font-weight: 600;
   }}
-  .nav-item:hover {{ background: var(--accent-soft); }}
-  .nav-item.active {{ background: linear-gradient(135deg, var(--accent), var(--strong-blue)); color: #fff; font-weight: 700; }}
-  .nav-item.active .count {{ background: rgba(255,255,255,0.25); color: #fff; }}
+  .nav-item:hover {{ background: rgba(255, 255, 255, 0.06); }}
+  .nav-item.active {{
+    background: var(--accent-soft);
+    border-left-color: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }}
+  .nav-item.active .count {{ background: rgba(74, 84, 255, 0.22); color: #fff; }}
 
-  /* --- Main content (fundo Marine Blue) --- */
+  /* --- Main content (fundo neutro e sóbrio) --- */
   .main {{
     flex: 1;
-    padding: 40px 44px;
-    max-width: 1040px;
-    background: linear-gradient(160deg, var(--accent) 0%, var(--strong-blue) 55%, var(--accent-dark) 100%);
+    padding: 44px 48px;
+    max-width: 1080px;
+    background: var(--page-bg);
     color: var(--page-text);
     min-height: 100vh;
   }}
@@ -165,56 +207,81 @@ PAGE_TEMPLATE = """<!doctype html>
     align-items: flex-start;
     gap: 20px;
     flex-wrap: wrap;
-    margin-bottom: 26px;
+    margin-bottom: 30px;
   }}
-  .main-header h2 {{ margin: 0 0 4px; font-size: 1.7rem; font-weight: 700; color: var(--page-text); }}
-  .main-header p {{ margin: 0; color: var(--page-muted); }}
+  .main-header h2 {{ margin: 0 0 8px; font-family: var(--font-display); font-size: 1.9rem; font-weight: 700; letter-spacing: -0.3px; color: var(--page-text); }}
+  .main-header p {{ margin: 0; color: var(--page-muted); font-size: 1rem; }}
+  .hero-pill {{
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(74, 84, 255, 0.35);
+    color: var(--accent);
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }}
+  .hero-pill .dot {{ width: 6px; height: 6px; border-radius: 50%; background: var(--brand-green-alt); }}
+  .main-header.home-mode {{
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 48px;
+  }}
+  .main-header.home-mode > div {{ display: flex; flex-direction: column; align-items: center; }}
+  .main-header.home-mode .hero-pill {{ display: inline-flex; }}
+  .main-header.home-mode h2 {{ font-size: 3rem; letter-spacing: -0.8px; }}
+  .main-header.home-mode p#section-subtitle {{ font-size: 1.15rem; max-width: 520px; }}
   .search {{
     width: 280px;
     max-width: 100%;
-    padding: 11px 14px;
+    padding: 11px 15px;
     border-radius: 9px;
     border: 1px solid var(--border);
     background: var(--card-bg);
     color: var(--card-text);
     font-family: inherit;
-    font-size: 0.9rem;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    font-size: 0.95rem;
   }}
-  .search:focus {{ outline: 2px solid var(--brand-blue); outline-offset: 1px; }}
+  .search::placeholder {{ color: var(--card-muted); }}
+  .search:focus {{ outline: 2px solid var(--accent); outline-offset: 1px; }}
 
   /* --- Calendário de eventos (por categoria) --- */
-  #cal-wrap {{ margin-bottom: 26px; }}
+  #cal-wrap {{ margin-bottom: 30px; }}
   .updates-cal {{ display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }}
   .updates-cal-calendar {{
     flex: none;
-    width: 280px;
+    width: 296px;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    padding: 20px;
   }}
-  .cal-head {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }}
+  .cal-head {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
   .cal-head button {{
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--bg);
+    color: var(--card-muted);
     border: none;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 16px;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: background 0.15s ease, color 0.15s ease;
   }}
-  .cal-head button:hover {{ background: var(--strong-blue); color: #fff; }}
-  .cal-month-label {{ font-weight: 700; font-size: 0.85rem; color: var(--card-text); text-transform: capitalize; }}
+  .cal-head button:hover {{ background: var(--accent-soft); color: var(--accent); }}
+  .cal-month-label {{ font-weight: 700; font-size: 0.95rem; color: var(--card-text); }}
   .cal-weekdays {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 6px; }}
-  .cal-weekdays span {{ font-size: 0.65rem; text-align: center; color: var(--card-muted); font-weight: 600; }}
+  .cal-weekdays span {{ font-size: 0.72rem; text-align: center; color: var(--card-muted); font-weight: 600; }}
   .cal-grid {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }}
   .cal-day {{
     position: relative;
@@ -222,12 +289,12 @@ PAGE_TEMPLATE = """<!doctype html>
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.75rem;
+    font-size: 0.85rem;
     border-radius: 8px;
     color: var(--card-muted);
   }}
   .cal-day.empty {{ visibility: hidden; }}
-  .cal-day.today {{ box-shadow: inset 0 0 0 1.5px var(--strong-blue); }}
+  .cal-day.today {{ box-shadow: inset 0 0 0 1.5px var(--accent); }}
   .cal-day.has-update {{ cursor: pointer; color: var(--card-text); font-weight: 700; background: var(--accent-soft); }}
   .cal-day.has-update:hover {{ background: var(--accent); color: #fff; }}
   .cal-day.has-update.selected {{ background: var(--accent); color: #fff; }}
@@ -240,12 +307,12 @@ PAGE_TEMPLATE = """<!doctype html>
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--brand-green), var(--brand-green-alt));
+    background: var(--brand-green);
   }}
   .cal-day.has-update.selected::after {{ background: #fff; }}
   .updates-cal-list {{ flex: 1; min-width: 240px; }}
   .updates-cal-hint {{
-    font-size: 0.82rem;
+    font-size: 0.92rem;
     color: var(--card-muted);
     font-style: italic;
     padding: 26px 18px;
@@ -258,47 +325,104 @@ PAGE_TEMPLATE = """<!doctype html>
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 4px 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    padding: 4px 20px;
   }}
-  .cal-event {{ padding: 16px 0; border-bottom: 1px solid var(--border); }}
+  .cal-event {{ padding: 18px 0; border-bottom: 1px solid var(--border); }}
   .cal-event:last-child {{ border-bottom: none; }}
-  .cal-event-date {{ font-size: 0.72rem; color: var(--card-muted); margin-bottom: 4px; }}
-  .cal-event h4 {{ margin: 0 0 6px; font-size: 0.95rem; font-weight: 700; color: var(--card-text); }}
+  .cal-event-date {{ font-size: 0.82rem; color: var(--card-muted); margin-bottom: 5px; }}
+  .cal-event-tag {{
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 9px;
+    border: 1px solid;
+    border-radius: 999px;
+    margin-bottom: 8px;
+  }}
+  .cal-event h4 {{ margin: 0 0 6px; font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--card-text); }}
   .cal-event h4 a {{ color: var(--accent); text-decoration: underline; text-decoration-color: var(--border); }}
-  .cal-event p {{ margin: 0; font-size: 0.85rem; color: var(--card-muted); line-height: 1.5; }}
+  .cal-event p {{ margin: 0; font-size: 0.95rem; color: var(--card-muted); line-height: 1.55; }}
   @media (max-width: 720px) {{
     .updates-cal-calendar {{ width: 100%; }}
   }}
-
   .cards {{
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
   }}
   .card {{
     display: block;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 18px;
+    padding: 22px;
     text-align: left;
     cursor: pointer;
     font-family: inherit;
     color: var(--card-text);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
-    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
   }}
   .card:hover {{
-    border-color: var(--brand-blue);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+    border-color: var(--accent);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
   }}
   .card .icon {{ font-size: 1.5rem; }}
-  .card .name {{ display: block; margin-top: 10px; font-weight: 600; word-break: break-word; }}
-  .card .path {{ display: block; margin-top: 4px; font-size: 0.78rem; color: var(--card-muted); word-break: break-word; }}
+  .card .name {{ display: block; margin-top: 12px; font-size: 1.02rem; font-weight: 600; word-break: break-word; }}
+  .card .path {{ display: block; margin-top: 5px; font-size: 0.86rem; color: var(--card-muted); word-break: break-word; }}
   .empty {{ color: var(--page-muted); font-style: italic; }}
-  footer {{ margin-top: 44px; color: var(--page-muted); font-size: 0.8rem; }}
+
+  /* --- Menu inicial (cards grandes por categoria) --- */
+  .home-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
+    max-width: 940px;
+    width: 100%;
+  }}
+  .home-card {{
+    --card-accent: var(--accent);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 30px 26px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--card-text);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }}
+  .home-card:hover {{
+    border-color: var(--card-accent);
+    box-shadow: 0 0 0 1px var(--card-accent) inset, 0 14px 34px rgba(0, 0, 0, 0.5);
+    transform: translateY(-3px);
+  }}
+  .home-card-icon {{
+    width: 54px;
+    height: 54px;
+    border-radius: 13px;
+    object-fit: cover;
+  }}
+  .home-card-name {{ font-family: var(--font-display); font-size: 1.3rem; font-weight: 700; }}
+  .home-card-desc {{
+    margin: -8px 0 2px;
+    font-size: 1rem;
+    color: var(--card-muted);
+    line-height: 1.55;
+  }}
+  .home-card-count {{ font-size: 0.88rem; color: var(--card-muted); }}
+  .home-card-link {{
+    margin-top: 4px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--card-accent);
+  }}
+  footer {{ margin-top: 48px; color: var(--page-muted); font-size: 0.86rem; }}
 
   /* --- In-page preview modal --- */
   .modal-overlay {{
@@ -321,7 +445,7 @@ PAGE_TEMPLATE = """<!doctype html>
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.55);
   }}
   .modal-header {{
     display: flex;
@@ -333,7 +457,7 @@ PAGE_TEMPLATE = """<!doctype html>
   .modal-header .name {{ font-weight: 700; flex: 1; word-break: break-word; }}
   .modal-header a, .modal-header button {{
     font-family: inherit;
-    font-size: 0.85rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--accent);
     background: none;
@@ -365,7 +489,7 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   .modal-body .no-preview a {{
     color: #fff;
-    background: var(--strong-blue);
+    background: var(--accent);
     padding: 10px 18px;
     border-radius: 8px;
     text-decoration: none;
@@ -382,15 +506,18 @@ PAGE_TEMPLATE = """<!doctype html>
 </head>
 <body>
   <div class="sidebar">
-    <div class="logo">
-      <img src="assets/logo-suri.png" alt="Suri Shop">
-    </div>
     <p class="tagline">Hub Produtec</p>
     <div id="nav"></div>
+    <div class="logo">
+      <div class="logo-chip">
+        <img src="assets/logo-suri.png" alt="Suri Shop">
+      </div>
+    </div>
   </div>
   <div class="main">
-    <div class="main-header">
+    <div class="main-header" id="main-header">
       <div>
+        <div class="hero-pill" id="hero-pill"><span class="dot"></span>Hub Produtec</div>
         <h2 id="section-title">Documentos</h2>
         <p id="section-subtitle"></p>
       </div>
@@ -420,6 +547,7 @@ PAGE_TEMPLATE = """<!doctype html>
 
     const nav = document.getElementById('nav');
     const cardsEl = document.getElementById('cards');
+    const mainHeaderEl = document.getElementById('main-header');
     const titleEl = document.getElementById('section-title');
     const subtitleEl = document.getElementById('section-subtitle');
     const searchEl = document.getElementById('search');
@@ -429,11 +557,13 @@ PAGE_TEMPLATE = """<!doctype html>
     const modalBody = document.getElementById('modal-body');
     const modalClose = document.getElementById('modal-close');
 
-    let active = DATA.length ? DATA[0].category : null;
+    let active = 'home';
     const calState = {{}}; // estado (mês/ano/seleção) de cada calendário, por categoria
     const MONTH_NAMES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
     function pad2(n) {{ return n < 10 ? '0' + n : '' + n; }}
+
+    function capitalize(s) {{ return s.charAt(0).toUpperCase() + s.slice(1); }}
 
     function escapeHtml(s) {{
       const d = document.createElement('div');
@@ -466,7 +596,8 @@ PAGE_TEMPLATE = """<!doctype html>
 
     function renderCalendar(section) {{
       const calWrap = document.getElementById('cal-wrap');
-      if (!section.calendar || !section.calendar.length) {{
+      const hasEvents = section.calendar && section.calendar.length;
+      if (!hasEvents && section.category !== 'home') {{
         calWrap.style.display = 'none';
         calWrap.innerHTML = '';
         return;
@@ -495,7 +626,7 @@ PAGE_TEMPLATE = """<!doctype html>
       const nextBtn = calWrap.querySelector('[data-dir="1"]');
 
       function paintGrid() {{
-        monthLabel.textContent = MONTH_NAMES[state.m] + ' de ' + state.y;
+        monthLabel.textContent = capitalize(MONTH_NAMES[state.m]) + ' de ' + state.y;
         grid.innerHTML = '';
         const firstDay = new Date(state.y, state.m, 1).getDay();
         const daysInMonth = new Date(state.y, state.m + 1, 0).getDate();
@@ -538,8 +669,12 @@ PAGE_TEMPLATE = """<!doctype html>
           const titleHtml = u.link
             ? '<a href="' + u.link + '" target="_blank" rel="noopener">' + escapeHtml(u.title) + '</a>'
             : escapeHtml(u.title);
+          const tagHtml = u.category
+            ? '<span class="cal-event-tag" style="color:' + u.categoryAccent + ';border-color:' + u.categoryAccent + '66;">' + escapeHtml(u.category) + '</span>'
+            : '';
           out += '<div class="cal-event"' + (idx === items.length - 1 ? ' style="border-bottom:none;"' : '') + '>' +
             '<div class="cal-event-date">' + formatDateLong(state.selected) + '</div>' +
+            tagHtml +
             '<h4>' + titleHtml + '</h4>' +
             (u.desc ? '<p>' + escapeHtml(u.desc) + '</p>' : '') +
             '</div>';
@@ -559,9 +694,7 @@ PAGE_TEMPLATE = """<!doctype html>
 
       paintGrid();
       paintList();
-    }}
-
-    function extOf(name) {{
+    }}    function extOf(name) {{
       const parts = name.split('.');
       return parts.length > 1 ? parts.pop().toLowerCase() : '';
     }}
@@ -600,16 +733,65 @@ PAGE_TEMPLATE = """<!doctype html>
     overlay.addEventListener('click', (e) => {{ if (e.target === overlay) closePreview(); }});
     document.addEventListener('keydown', (e) => {{ if (e.key === 'Escape') closePreview(); }});
 
-    function render() {{
+    function goTo(category) {{
+      active = category;
+      searchEl.value = '';
+      render();
+    }}
+
+    function renderNav() {{
       nav.innerHTML = '';
+
+      const homeBtn = document.createElement('button');
+      homeBtn.className = 'nav-item' + (active === 'home' ? ' active' : '');
+      homeBtn.innerHTML = '<span class="nav-label">Início</span>';
+      homeBtn.onclick = () => goTo('home');
+      nav.appendChild(homeBtn);
+
+      const divider = document.createElement('div');
+      divider.className = 'nav-divider';
+      nav.appendChild(divider);
+
       DATA.forEach(section => {{
         const btn = document.createElement('button');
         btn.className = 'nav-item' + (section.category === active ? ' active' : '');
-        btn.innerHTML = '<span>' + section.icon + ' ' + section.category + '</span>' +
+        btn.innerHTML = '<img class="nav-icon" src="' + section.icon + '" alt="">' +
+          '<span class="nav-label">' + section.category + '</span>' +
           '<span class="count">' + section.items.length + '</span>';
-        btn.onclick = () => {{ active = section.category; searchEl.value = ''; render(); }};
+        btn.onclick = () => goTo(section.category);
         nav.appendChild(btn);
       }});
+    }}
+
+    function renderHome() {{
+      mainHeaderEl.classList.add('home-mode');
+      titleEl.textContent = 'Atualizações';
+      subtitleEl.textContent = 'Tudo que aconteceu recentemente, por data — em todas as categorias.';
+      searchEl.style.display = 'none';
+      cardsEl.style.display = 'none';
+      cardsEl.innerHTML = '';
+
+      const allEvents = [];
+      DATA.forEach(section => {{
+        (section.calendar || []).forEach(ev => {{
+          allEvents.push(Object.assign({{}}, ev, {{ category: section.category, categoryAccent: section.accent }}));
+        }});
+      }});
+      renderCalendar({{ category: 'home', calendar: allEvents }});
+    }}
+
+    function render() {{
+      renderNav();
+      mainHeaderEl.classList.remove('home-mode');
+
+      if (active === 'home') {{
+        renderHome();
+        return;
+      }}
+
+      searchEl.style.display = '';
+      cardsEl.style.display = '';
+      cardsEl.className = 'cards';
 
       const section = DATA.find(s => s.category === active);
       if (!section) return;
@@ -642,7 +824,8 @@ PAGE_TEMPLATE = """<!doctype html>
   </script>
 </body>
 </html>
-""" 
+"""
+
 FILE_ICONS = {
     ".pdf": "\U0001F4C4",
     ".xlsx": "\U0001F4CA",
@@ -723,11 +906,13 @@ def build_categories():
                         "icon": file_icon(name),
                     })
 
-    # Anything not inside a matched category folder goes to "Outros"
+    # Anything not inside a matched category folder goes to "Outros" —
+    # exceto a pasta assets/, que guarda imagens de identidade visual
+    # (logo etc.) e nunca deve aparecer como se fosse um documento.
     for entry in top_entries:
         if entry in EXCLUDE or entry.startswith("."):
             continue
-        if entry in matched_dirs:
+        if entry in matched_dirs or entry == "assets":
             continue
         full = os.path.join(DOCS_DIR, entry)
         if os.path.isdir(full):
@@ -749,12 +934,33 @@ def build_categories():
     return by_category
 
 
-CATEGORY_ICONS = {
-    "Documentos": "\U0001F4C4",
-    "Requisitos": "\U0001F4CB",
-    "Deploy": "\U0001F680",
-    "Outros": "\U0001F4C1",
+# Ícones de categoria: imagens em docs/assets/ (não emoji). Cada categoria
+# usa um ícone próprio; qualquer categoria sem ícone mapeado cai no padrão.
+CATEGORY_ICON_FILES = {
+    "Documentos": "assets/icon-documentos.png",
+    "Requisitos": "assets/icon-requisitos.png",
+    "Deploy": "assets/icon-deploy.png",
+    "Outros": "assets/icon-outros.png",
 }
+DEFAULT_ICON_FILE = "assets/icon-outros.png"
+
+# Descrição curta e cor de destaque de cada categoria, usadas nos cards
+# grandes do menu inicial. Ajuste os textos livremente.
+CATEGORY_DESCRIPTIONS = {
+    "Documentos": "Guias, políticas e materiais de referência do time.",
+    "Requisitos": "Especificações e requisitos de produto para squads e stakeholders.",
+    "Deploy": "Checklists, releases e o calendário de eventos técnicos.",
+    "Outros": "Arquivos que não se encaixam nas categorias acima.",
+}
+DEFAULT_DESCRIPTION = "Documentos desta categoria."
+
+CATEGORY_ACCENTS = {
+    "Documentos": BRAND_BLUE,      # Suri Blue
+    "Requisitos": STRONG_BLUE,     # Strong Blue
+    "Deploy": BRAND_GREEN_ALT,     # WhatsApp Apple
+    "Outros": ACCENT,              # Marine Blue
+}
+DEFAULT_ACCENT = BRAND_BLUE
 
 
 def main():
@@ -765,21 +971,26 @@ def main():
     for cat in CATEGORY_ORDER:
         sections.append({
             "category": cat,
-            "icon": CATEGORY_ICONS.get(cat, DEFAULT_ICON),
+            "icon": CATEGORY_ICON_FILES.get(cat, DEFAULT_ICON_FILE),
+            "desc": CATEGORY_DESCRIPTIONS.get(cat, DEFAULT_DESCRIPTION),
+            "accent": CATEGORY_ACCENTS.get(cat, DEFAULT_ACCENT),
             "items": by_category[cat],
             "calendar": calendar_data.get(cat, []),
         })
     if by_category[FALLBACK_CATEGORY]:
         sections.append({
             "category": FALLBACK_CATEGORY,
-            "icon": CATEGORY_ICONS.get(FALLBACK_CATEGORY, DEFAULT_ICON),
+            "icon": CATEGORY_ICON_FILES.get(FALLBACK_CATEGORY, DEFAULT_ICON_FILE),
+            "desc": CATEGORY_DESCRIPTIONS.get(FALLBACK_CATEGORY, DEFAULT_DESCRIPTION),
+            "accent": CATEGORY_ACCENTS.get(FALLBACK_CATEGORY, DEFAULT_ACCENT),
             "items": by_category[FALLBACK_CATEGORY],
             "calendar": [],
         })
 
     data_json = json.dumps(sections, ensure_ascii=False)
     page = PAGE_TEMPLATE.format(
-        accent=ACCENT,
+        accent=BRAND_BLUE,
+        marine=ACCENT,
         accent_dark=ACCENT_DARK,
         strong_blue=STRONG_BLUE,
         brand_green=BRAND_GREEN,
