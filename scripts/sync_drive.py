@@ -10,6 +10,9 @@ Sincroniza uma pasta do Google Drive para dentro deste repositório (pasta docs/
   organização que vocês já usam no Drive.
 - Um manifesto (docs/.sync-manifest.json) guarda o `modifiedTime` de cada
   arquivo já sincronizado, para não baixar de novo o que não mudou.
+- Uma planilha do Google chamada "Calendário", dentro de uma pasta de
+  categoria (Documentos/Requisitos/Deploy), vira um calendário de eventos
+  no hub em vez de um documento comum (ver docs/.calendar-data.json).
 
 Variáveis de ambiente esperadas (definidas como Secrets do GitHub Actions):
   GDRIVE_CREDENTIALS   -> conteúdo JSON da chave da service account
@@ -21,12 +24,14 @@ Uso local (opcional, para testar fora do GitHub Actions):
   python scripts/sync_drive.py
 """
 
+import csv
 import io
 import json
 import os
 import re
 import sys
 import unicodedata
+from datetime import datetime
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -51,9 +56,22 @@ GOOGLE_EXPORT_MAP = {
 }
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
+SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 MANIFEST_PATH = os.path.join(DOCS_DIR, ".sync-manifest.json")
+CALENDAR_PATH = os.path.join(DOCS_DIR, ".calendar-data.json")
+
+# Nome (sem acento, sem diferenciar maiúsculas/minúsculas) que uma planilha do
+# Drive precisa ter, dentro de uma pasta de categoria (ex: Deploy), para virar
+# um calendário de eventos no hub em vez de um documento comum.
+CALENDAR_SHEET_NAMES = {"calendario"}
+
+DATE_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
+
+
+def strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
 def safe_name(name: str) -> str:
@@ -61,6 +79,67 @@ def safe_name(name: str) -> str:
     name = unicodedata.normalize("NFKC", name)
     name = re.sub(r'[\\/:*?"<>|]', "-", name).strip()
     return name or "sem-nome"
+
+
+def is_calendar_sheet(name: str) -> bool:
+    base, _ = os.path.splitext(name)
+    normalized = strip_accents(base).strip().lower()
+    return normalized in CALENDAR_SHEET_NAMES
+
+
+def parse_calendar_date(raw: str):
+    raw = (raw or "").strip()
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+def parse_calendar_csv(csv_text: str):
+    """Lê o CSV exportado de uma planilha 'Calendário' e devolve uma lista de
+    eventos: {"date": "AAAA-MM-DD", "title": ..., "desc": ..., "link": ...}.
+
+    Colunas esperadas (em qualquer ordem, com ou sem acento): Data, Título,
+    Descrição, Link (Link é opcional).
+    """
+    rows = list(csv.reader(io.StringIO(csv_text)))
+    if not rows:
+        return []
+
+    header = [strip_accents(h).strip().lower() for h in rows[0]]
+    col_index = {}
+    for idx, h in enumerate(header):
+        if h in ("data", "date"):
+            col_index["date"] = idx
+        elif h in ("titulo", "title"):
+            col_index["title"] = idx
+        elif h in ("descricao", "desc", "description"):
+            col_index["desc"] = idx
+        elif h in ("link", "url"):
+            col_index["link"] = idx
+
+    def get(row, key):
+        idx = col_index.get(key)
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx].strip()
+
+    entries = []
+    for row in rows[1:]:
+        if not any(cell.strip() for cell in row):
+            continue
+        date_str = parse_calendar_date(get(row, "date"))
+        title = get(row, "title")
+        if not date_str or not title:
+            continue
+        entry = {"date": date_str, "title": title, "desc": get(row, "desc")}
+        link = get(row, "link")
+        if link:
+            entry["link"] = link
+        entries.append(entry)
+    return entries
 
 
 def get_drive_service():
@@ -124,7 +203,28 @@ def download_file(service, file_id, mime_type, dest_path):
     return dest_path
 
 
-def sync_folder(service, folder_id, local_dir, manifest, stats):
+def sync_calendar_sheet(service, file_id, name, category, calendar_data, stats):
+    """Exporta uma planilha 'Calendário' como CSV e guarda os eventos lidos
+    dela em calendar_data[category], em vez de baixá-la como documento."""
+    if not category:
+        return
+    try:
+        request = service.files().export_media(fileId=file_id, mimeType="text/csv")
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        csv_text = buffer.getvalue().decode("utf-8-sig")
+        entries = parse_calendar_csv(csv_text)
+        calendar_data[category] = entries
+        stats["calendars"] = stats.get("calendars", 0) + 1
+        print(f"  calendário lido: {category}/{name} ({len(entries)} eventos)")
+    except Exception as exc:  # nunca deixa o calendário quebrar a sincronização
+        print(f"  aviso: não consegui ler a planilha de calendário '{name}' em {category}: {exc}")
+
+
+def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, category=None):
     os.makedirs(local_dir, exist_ok=True)
     seen_ids = set()
 
@@ -136,7 +236,23 @@ def sync_folder(service, folder_id, local_dir, manifest, stats):
         seen_ids.add(file_id)
 
         if mime_type == FOLDER_MIME:
-            sync_folder(service, file_id, os.path.join(local_dir, name), manifest, stats)
+            # Uma pasta logo dentro da raiz sincronizada é uma categoria
+            # (Documentos/Requisitos/Deploy); dentro dela, a categoria se
+            # mantém a mesma nas subpastas mais profundas.
+            child_category = name if local_dir == DOCS_DIR else category
+            sync_folder(
+                service,
+                file_id,
+                os.path.join(local_dir, name),
+                manifest,
+                stats,
+                calendar_data,
+                category=child_category,
+            )
+            continue
+
+        if mime_type == SPREADSHEET_MIME and is_calendar_sheet(item["name"]):
+            sync_calendar_sheet(service, file_id, name, category, calendar_data, stats)
             continue
 
         cached = manifest.get(file_id)
@@ -170,12 +286,20 @@ def main():
     service = get_drive_service()
     manifest = load_manifest()
     stats = {"updated": 0, "unchanged": 0}
+    calendar_data = {}
 
     print("Sincronizando Google Drive -> docs/ ...")
-    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats)
+    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats, calendar_data)
     save_manifest(manifest)
 
+    os.makedirs(DOCS_DIR, exist_ok=True)
+    with open(CALENDAR_PATH, "w", encoding="utf-8") as f:
+        json.dump(calendar_data, f, ensure_ascii=False, indent=2, sort_keys=True)
+
     print(f"Concluído. Atualizados: {stats['updated']}, sem mudança: {stats['unchanged']}.")
+    if calendar_data:
+        resumo = ", ".join(f"{cat} ({len(evts)})" for cat, evts in calendar_data.items())
+        print(f"Calendários encontrados: {resumo}")
 
 
 if __name__ == "__main__":
