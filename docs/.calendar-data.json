@@ -1,1 +1,10 @@
-{}
+{
+  "Deploy": [
+    {
+      "date": "2026-09-14",
+      "desc": "Corrigimos uma falha no checkout de pedidos.",
+      "link": "https://sejasuri.atlassian.net/browse/SDK-520",
+      "title": "[SDK-520] Checkout não exibia descontos"
+    }
+  ]
+}
