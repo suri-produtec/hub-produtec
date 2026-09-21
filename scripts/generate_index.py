@@ -19,6 +19,10 @@ Se uma dessas pastas de categoria tiver dentro uma planilha do Google
 chamada "Calendário" (colunas Data/Título/Descrição/Link), o hub mostra
 também um calendário de eventos para essa categoria (ver sync_drive.py).
 
+A página inicial ("Início") mostra um feed estilo jornal com as notícias da
+planilha "Novidades" (pasta "Novidades" na raiz do Drive sincronizado, ver
+sync_drive.py e docs/.news-data.json) em vez de um calendário.
+
 Roda depois de sync_drive.py (veja .github/workflows/sync-drive.yml).
 """
 
@@ -29,7 +33,8 @@ import unicodedata
 
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 CALENDAR_PATH = os.path.join(DOCS_DIR, ".calendar-data.json")
-EXCLUDE = {".sync-manifest.json", ".calendar-data.json", "index.html"}
+NEWS_PATH = os.path.join(DOCS_DIR, ".news-data.json")
+EXCLUDE = {".sync-manifest.json", ".calendar-data.json", ".news-data.json", "index.html"}
 
 CATEGORY_ORDER = ["Documentos", "Requisitos", "Deploy"]
 FALLBACK_CATEGORY = "Outros"
@@ -347,6 +352,73 @@ PAGE_TEMPLATE = """<!doctype html>
   @media (max-width: 720px) {{
     .updates-cal-calendar {{ width: 100%; }}
   }}
+
+  /* --- Feed de novidades (página inicial, estilo jornal) --- */
+  #news-feed {{
+    display: none;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto 30px;
+  }}
+  .news-card {{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    text-align: left;
+  }}
+  .news-cover {{ width: 100%; height: 210px; object-fit: cover; display: block; }}
+  .news-body {{ padding: 28px 30px; }}
+  .news-meta {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }}
+  .news-tag {{
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    border: 1px solid;
+  }}
+  .news-date {{ font-size: 0.85rem; color: var(--card-muted); }}
+  .news-card h3 {{ font-family: var(--font-display); font-size: 1.55rem; font-weight: 700; margin: 0 0 12px; letter-spacing: -0.2px; color: var(--card-text); }}
+  .news-card p.news-desc {{ color: var(--card-muted); font-size: 1rem; margin: 0 0 18px; line-height: 1.6; }}
+  .news-items {{
+    list-style: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 20px;
+    margin: 4px 0 20px;
+  }}
+  .news-items li {{ margin: 14px 0; font-size: 0.95rem; color: var(--card-muted); line-height: 1.55; }}
+  .news-items li b {{ color: var(--card-text); }}
+  .news-link {{ color: var(--accent); font-weight: 700; font-size: 0.95rem; text-decoration: none; }}
+  .news-link:hover {{ text-decoration: underline; }}
+  .news-empty {{
+    font-size: 0.95rem;
+    color: var(--card-muted);
+    font-style: italic;
+    padding: 30px 20px;
+    text-align: center;
+    background: var(--card-bg);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+  }}
+
   .cards {{
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -524,6 +596,7 @@ PAGE_TEMPLATE = """<!doctype html>
       <input class="search" id="search" type="text" placeholder="Buscar nesta seção...">
     </div>
     <div id="cal-wrap"></div>
+    <div id="news-feed"></div>
     <div class="cards" id="cards"></div>
     <footer>Atualizado automaticamente pelo GitHub Actions a cada sincronização com o Google Drive.</footer>
   </div>
@@ -541,6 +614,7 @@ PAGE_TEMPLATE = """<!doctype html>
 
   <script>
     const DATA = {data_json};
+    const NEWS = {news_json};
 
     const OFFICE_EXTS = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
     const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -763,21 +837,75 @@ PAGE_TEMPLATE = """<!doctype html>
       }});
     }}
 
+    // Paleta de cores das tags do feed de novidades — escolhida por hash do
+    // texto da tag, então a mesma tag (ex: "Integração") sempre cai na
+    // mesma cor entre uma notícia e outra.
+    const TAG_PALETTE = ['#8891ff', '#4ee6a0', '#ffb84e', '#ff8fb1', '#5fd0ff', '#c792ff'];
+
+    function tagColor(tag) {{
+      if (!tag) return TAG_PALETTE[0];
+      let h = 0;
+      for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+      return TAG_PALETTE[h % TAG_PALETTE.length];
+    }}
+
+    // Uma linha da coluna "Itens" no formato "Título — resto" (ou "Título:
+    // resto") vira um item de lista com o título em negrito.
+    function splitItemLine(line) {{
+      const seps = [' — ', ' – ', ' - ', ': '];
+      for (const sep of seps) {{
+        const idx = line.indexOf(sep);
+        if (idx > 0) {{
+          return {{ lead: line.slice(0, idx), rest: line.slice(idx + sep.length) }};
+        }}
+      }}
+      return {{ lead: '', rest: line }};
+    }}
+
+    function renderNewsFeed() {{
+      const wrap = document.getElementById('news-feed');
+      wrap.style.display = 'flex';
+      if (!NEWS.length) {{
+        wrap.innerHTML = '<div class="news-empty">Nenhuma novidade publicada ainda.</div>';
+        return;
+      }}
+      wrap.innerHTML = NEWS.map(n => {{
+        const color = tagColor(n.tag);
+        const cover = n.image ? '<img class="news-cover" src="' + n.image + '" alt="">' : '';
+        const tag = n.tag
+          ? '<span class="news-tag" style="color:' + color + ';border-color:' + color + ';">' + escapeHtml(n.tag) + '</span>'
+          : '<span></span>';
+        const items = (n.items && n.items.length)
+          ? '<ul class="news-items">' + n.items.map(line => {{
+              const parts = splitItemLine(line);
+              return '<li>' + (parts.lead ? '<b>' + escapeHtml(parts.lead) + '</b> — ' : '') + escapeHtml(parts.rest) + '</li>';
+            }}).join('') + '</ul>'
+          : '';
+        const link = n.link ? '<a class="news-link" href="' + n.link + '" target="_blank" rel="noopener">Ler mais →</a>' : '';
+        return '<article class="news-card">' + cover +
+          '<div class="news-body">' +
+            '<div class="news-meta">' + tag + '<span class="news-date">' + formatDateLong(n.date) + '</span></div>' +
+            '<h3>' + escapeHtml(n.title) + '</h3>' +
+            (n.desc ? '<p class="news-desc">' + escapeHtml(n.desc) + '</p>' : '') +
+            items + link +
+          '</div>' +
+        '</article>';
+      }}).join('');
+    }}
+
     function renderHome() {{
       mainHeaderEl.classList.add('home-mode');
-      titleEl.textContent = 'Atualizações';
-      subtitleEl.textContent = 'Tudo que aconteceu recentemente, por data — em todas as categorias.';
+      titleEl.textContent = 'Novidades';
+      subtitleEl.textContent = 'As últimas atualizações do produto, mais recentes primeiro.';
       searchEl.style.display = 'none';
       cardsEl.style.display = 'none';
       cardsEl.innerHTML = '';
 
-      const allEvents = [];
-      DATA.forEach(section => {{
-        (section.calendar || []).forEach(ev => {{
-          allEvents.push(Object.assign({{}}, ev, {{ category: section.category, categoryAccent: section.accent }}));
-        }});
-      }});
-      renderCalendar({{ category: 'home', calendar: allEvents }});
+      const calWrap = document.getElementById('cal-wrap');
+      calWrap.style.display = 'none';
+      calWrap.innerHTML = '';
+
+      renderNewsFeed();
     }}
 
     function render() {{
@@ -789,6 +917,7 @@ PAGE_TEMPLATE = """<!doctype html>
         return;
       }}
 
+      document.getElementById('news-feed').style.display = 'none';
       searchEl.style.display = '';
       cardsEl.style.display = '';
       cardsEl.className = 'cards';
@@ -858,6 +987,19 @@ def load_calendar_data():
         except (json.JSONDecodeError, OSError):
             return {}
     return {}
+
+
+def load_news_data():
+    """Lê docs/.news-data.json (gerado pelo sync_drive.py a partir da
+    planilha 'Novidades' dentro da pasta "Novidades", na raiz do Drive
+    sincronizado). Se não existir ou estiver corrompido, o feed fica vazio."""
+    if os.path.exists(NEWS_PATH):
+        try:
+            with open(NEWS_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return []
+    return []
 
 
 def file_icon(name):
@@ -966,6 +1108,7 @@ DEFAULT_ACCENT = BRAND_BLUE
 def main():
     by_category = build_categories()
     calendar_data = load_calendar_data()
+    news_data = load_news_data()
 
     sections = []
     for cat in CATEGORY_ORDER:
@@ -988,6 +1131,7 @@ def main():
         })
 
     data_json = json.dumps(sections, ensure_ascii=False)
+    news_json = json.dumps(news_data, ensure_ascii=False)
     page = PAGE_TEMPLATE.format(
         accent=BRAND_BLUE,
         marine=ACCENT,
@@ -998,6 +1142,7 @@ def main():
         brand_blue=BRAND_BLUE,
         snow_blue=SNOW_BLUE,
         data_json=data_json,
+        news_json=news_json,
     )
 
     os.makedirs(DOCS_DIR, exist_ok=True)
