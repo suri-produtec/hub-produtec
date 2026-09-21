@@ -445,6 +445,42 @@ PAGE_TEMPLATE = """<!doctype html>
   .card .path {{ display: block; margin-top: 5px; font-size: 0.86rem; color: var(--card-muted); word-break: break-word; }}
   .empty {{ color: var(--page-muted); font-style: italic; }}
 
+  .card.folder-card {{ border-color: var(--border); }}
+  .card.folder-card:hover {{ border-color: var(--accent); }}
+  .card.folder-card .name {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }}
+  .card.folder-card .folder-count {{
+    flex-shrink: 0;
+    background: var(--bg);
+    color: var(--card-muted);
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }}
+
+  /* --- Breadcrumb de navegação por subpastas --- */
+  #breadcrumb {{
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: -10px 0 20px;
+  }}
+  #breadcrumb button {{
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--card-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }}
+  #breadcrumb button:last-child {{ color: var(--accent); }}
+  #breadcrumb button:hover {{ background: var(--accent-soft); color: var(--accent); }}
+  #breadcrumb .crumb-sep {{ color: var(--card-muted); }}
+
   /* --- Menu inicial (cards grandes por categoria) --- */
   .home-grid {{
     display: grid;
@@ -597,6 +633,7 @@ PAGE_TEMPLATE = """<!doctype html>
     </div>
     <div id="cal-wrap"></div>
     <div id="news-feed"></div>
+    <div id="breadcrumb"></div>
     <div class="cards" id="cards"></div>
     <footer>Atualizado automaticamente pelo GitHub Actions a cada sincronização com o Google Drive.</footer>
   </div>
@@ -632,6 +669,7 @@ PAGE_TEMPLATE = """<!doctype html>
     const modalClose = document.getElementById('modal-close');
 
     let active = 'home';
+    let folderPath = []; // trilha de subpastas dentro da categoria atual (Documentos > Políticas > ...)
     const calState = {{}}; // estado (mês/ano/seleção) de cada calendário, por categoria
     const MONTH_NAMES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
@@ -809,8 +847,45 @@ PAGE_TEMPLATE = """<!doctype html>
 
     function goTo(category) {{
       active = category;
+      folderPath = [];
       searchEl.value = '';
       render();
+    }}
+
+    // Acha o nó da árvore (categoria ou uma de suas subpastas) correspondente
+    // à trilha atual em folderPath. Se a trilha não bater mais (ex: pasta
+    // sumiu numa sincronização), volta pra raiz da categoria.
+    function getNode(section) {{
+      let node = section;
+      for (const name of folderPath) {{
+        const next = (node.folders || []).find(f => f.name === name);
+        if (!next) {{ folderPath = []; return section; }}
+        node = next;
+      }}
+      return node;
+    }}
+
+    function renderBreadcrumb(section) {{
+      const el = document.getElementById('breadcrumb');
+      if (!folderPath.length) {{
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+      }}
+      el.style.display = 'flex';
+      let html = '<button type="button" data-idx="-1">' + escapeHtml(section.category) + '</button>';
+      folderPath.forEach((name, idx) => {{
+        html += '<span class="crumb-sep">/</span><button type="button" data-idx="' + idx + '">' + escapeHtml(name) + '</button>';
+      }});
+      el.innerHTML = html;
+      el.querySelectorAll('button').forEach(btn => {{
+        btn.onclick = () => {{
+          const idx = parseInt(btn.dataset.idx, 10);
+          folderPath = idx === -1 ? [] : folderPath.slice(0, idx + 1);
+          searchEl.value = '';
+          render();
+        }};
+      }});
     }}
 
     function renderNav() {{
@@ -831,7 +906,7 @@ PAGE_TEMPLATE = """<!doctype html>
         btn.className = 'nav-item' + (section.category === active ? ' active' : '');
         btn.innerHTML = '<img class="nav-icon" src="' + section.icon + '" alt="">' +
           '<span class="nav-label">' + section.category + '</span>' +
-          '<span class="count">' + section.items.length + '</span>';
+          '<span class="count">' + section.count + '</span>';
         btn.onclick = () => goTo(section.category);
         nav.appendChild(btn);
       }});
@@ -924,25 +999,43 @@ PAGE_TEMPLATE = """<!doctype html>
 
       const section = DATA.find(s => s.category === active);
       if (!section) return;
-      titleEl.textContent = section.category;
-      subtitleEl.textContent = section.items.length + (section.items.length === 1 ? ' documento' : ' documentos');
 
-      renderCalendar(section);
+      const node = getNode(section);
+      renderBreadcrumb(section);
+
+      titleEl.textContent = folderPath.length ? folderPath[folderPath.length - 1] : section.category;
+      subtitleEl.textContent = node.count + (node.count === 1 ? ' documento' : ' documentos');
+
+      if (folderPath.length === 0) {{
+        renderCalendar(section);
+      }} else {{
+        const calWrap = document.getElementById('cal-wrap');
+        calWrap.style.display = 'none';
+        calWrap.innerHTML = '';
+      }}
 
       const query = searchEl.value.trim().toLowerCase();
-      const items = section.items.filter(it => it.name.toLowerCase().includes(query));
+      const folders = (node.folders || []).filter(f => f.name.toLowerCase().includes(query));
+      const items = (node.items || []).filter(it => it.name.toLowerCase().includes(query));
 
       cardsEl.innerHTML = '';
-      if (!items.length) {{
+      if (!folders.length && !items.length) {{
         cardsEl.innerHTML = '<p class="empty">Nenhum documento encontrado.</p>';
         return;
       }}
+      folders.forEach(f => {{
+        const btn = document.createElement('button');
+        btn.className = 'card folder-card';
+        btn.innerHTML = '<span class="icon">📁</span>' +
+          '<span class="name">' + escapeHtml(f.name) + '<span class="folder-count">' + f.count + '</span></span>';
+        btn.onclick = () => {{ folderPath = folderPath.concat([f.name]); searchEl.value = ''; render(); }};
+        cardsEl.appendChild(btn);
+      }});
       items.forEach(it => {{
         const btn = document.createElement('button');
         btn.className = 'card';
         btn.innerHTML = '<span class="icon">' + it.icon + '</span>' +
-          '<span class="name">' + it.name + '</span>' +
-          (it.subpath ? '<span class="path">' + it.subpath + '</span>' : '');
+          '<span class="name">' + escapeHtml(it.name) + '</span>';
         btn.onclick = () => openPreview(it);
         cardsEl.appendChild(btn);
       }});
@@ -1007,25 +1100,45 @@ def file_icon(name):
     return FILE_ICONS.get(ext.lower(), DEFAULT_ICON)
 
 
-def collect_files(path, rel_prefix=""):
-    """Recursively collect files under `path`, returning list of (name, href_rel, subpath_label)."""
-    results = []
+def collect_tree(path, href_prefix=""):
+    """Recursively builds a folder tree: {"items": [...], "folders": [...]}.
+    Each item in "folders" is itself a tree plus a "name". `href_prefix` is
+    the path (relative to docs/) needed to link to a file, which is kept
+    separate from the tree's own nesting so a document keeps working when
+    opened, no matter how deep it is."""
+    tree = {"items": [], "folders": []}
     if not os.path.isdir(path):
-        return results
+        return tree
     for name in sorted(os.listdir(path), key=str.lower):
         if name in EXCLUDE or name.startswith("."):
             continue
         full = os.path.join(path, name)
         if os.path.isdir(full):
-            results.extend(collect_files(full, rel_prefix + name + "/"))
+            subtree = collect_tree(full, href_prefix + name + "/")
+            subtree["name"] = name
+            tree["folders"].append(subtree)
         else:
-            results.append((name, rel_prefix + name, rel_prefix.rstrip("/")))
-    return results
+            tree["items"].append({
+                "name": name,
+                "href": href_prefix + name,
+                "icon": file_icon(name),
+            })
+    return tree
+
+
+def add_counts(tree):
+    """Preenche tree["count"] com o total de documentos dentro dela, incluindo
+    subpastas — usado no contador do menu lateral e nos cards de pasta."""
+    count = len(tree["items"])
+    for folder in tree["folders"]:
+        count += add_counts(folder)
+    tree["count"] = count
+    return count
 
 
 def build_categories():
-    by_category = {cat: [] for cat in CATEGORY_ORDER}
-    by_category[FALLBACK_CATEGORY] = []
+    by_category = {cat: {"items": [], "folders": []} for cat in CATEGORY_ORDER}
+    by_category[FALLBACK_CATEGORY] = {"items": [], "folders": []}
 
     if not os.path.isdir(DOCS_DIR):
         return by_category
@@ -1040,13 +1153,9 @@ def build_categories():
             full = os.path.join(DOCS_DIR, entry)
             if os.path.isdir(full) and strip_accents(entry).lower() == strip_accents(cat).lower():
                 matched_dirs.add(entry)
-                for name, href, subpath in collect_files(full):
-                    by_category[cat].append({
-                        "name": name,
-                        "href": href,
-                        "subpath": subpath,
-                        "icon": file_icon(name),
-                    })
+                tree = collect_tree(full)
+                by_category[cat]["items"] = tree["items"]
+                by_category[cat]["folders"] = tree["folders"]
 
     # Anything not inside a matched category folder goes to "Outros" —
     # exceto a pasta assets/, que guarda imagens de identidade visual
@@ -1058,20 +1167,18 @@ def build_categories():
             continue
         full = os.path.join(DOCS_DIR, entry)
         if os.path.isdir(full):
-            for name, href, subpath in collect_files(full, entry + "/"):
-                by_category[FALLBACK_CATEGORY].append({
-                    "name": name,
-                    "href": href,
-                    "subpath": subpath,
-                    "icon": file_icon(name),
-                })
+            subtree = collect_tree(full, entry + "/")
+            subtree["name"] = entry
+            by_category[FALLBACK_CATEGORY]["folders"].append(subtree)
         else:
-            by_category[FALLBACK_CATEGORY].append({
+            by_category[FALLBACK_CATEGORY]["items"].append({
                 "name": entry,
                 "href": entry,
-                "subpath": "",
                 "icon": file_icon(entry),
             })
+
+    for tree in by_category.values():
+        add_counts(tree)
 
     return by_category
 
@@ -1117,16 +1224,20 @@ def main():
             "icon": CATEGORY_ICON_FILES.get(cat, DEFAULT_ICON_FILE),
             "desc": CATEGORY_DESCRIPTIONS.get(cat, DEFAULT_DESCRIPTION),
             "accent": CATEGORY_ACCENTS.get(cat, DEFAULT_ACCENT),
-            "items": by_category[cat],
+            "items": by_category[cat]["items"],
+            "folders": by_category[cat]["folders"],
+            "count": by_category[cat]["count"],
             "calendar": calendar_data.get(cat, []),
         })
-    if by_category[FALLBACK_CATEGORY]:
+    if by_category[FALLBACK_CATEGORY]["items"] or by_category[FALLBACK_CATEGORY]["folders"]:
         sections.append({
             "category": FALLBACK_CATEGORY,
             "icon": CATEGORY_ICON_FILES.get(FALLBACK_CATEGORY, DEFAULT_ICON_FILE),
             "desc": CATEGORY_DESCRIPTIONS.get(FALLBACK_CATEGORY, DEFAULT_DESCRIPTION),
             "accent": CATEGORY_ACCENTS.get(FALLBACK_CATEGORY, DEFAULT_ACCENT),
-            "items": by_category[FALLBACK_CATEGORY],
+            "items": by_category[FALLBACK_CATEGORY]["items"],
+            "folders": by_category[FALLBACK_CATEGORY]["folders"],
+            "count": by_category[FALLBACK_CATEGORY]["count"],
             "calendar": [],
         })
 
