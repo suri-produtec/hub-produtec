@@ -4,7 +4,8 @@
     "tag": "Vtex",
     "title": "VA/VR agora funciona na integração VTEX",
     "desc": "Lojas que usam bots VTEX já podem configurar métodos de pagamento customizados pra Vale Alimentação e Vale Refeição — funcionalidade solicitada pela Casas Pedro.",
-    "image": "",
-    "items": []
+    "image": "assets/novidades/IMG_0738.jpg",
+    "items": [],
+    "link": "https://sejasuri.atlassian.net/browse/SDK-589"
   }
 ]
