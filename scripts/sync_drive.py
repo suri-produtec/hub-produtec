@@ -13,6 +13,12 @@ Sincroniza uma pasta do Google Drive para dentro deste repositório (pasta docs/
 - Uma planilha do Google chamada "Calendário", dentro de uma pasta de
   categoria (Documentos/Requisitos/Deploy), vira um calendário de eventos
   no hub em vez de um documento comum (ver docs/.calendar-data.json).
+- Uma pasta chamada "Novidades", direto na raiz da pasta sincronizada (no
+  mesmo nível de Documentos/Requisitos/Deploy, mas sem virar uma categoria
+  do menu), vira o feed estilo jornal da página inicial: a planilha
+  "Novidades" dentro dela é o conteúdo das notícias, e qualquer outro
+  arquivo (imagens de capa) é baixado para docs/assets/novidades/ (ver
+  docs/.news-data.json e sync_news_folder()).
 
 Variáveis de ambiente esperadas (definidas como Secrets do GitHub Actions):
   GDRIVE_CREDENTIALS   -> conteúdo JSON da chave da service account
@@ -61,11 +67,21 @@ SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 MANIFEST_PATH = os.path.join(DOCS_DIR, ".sync-manifest.json")
 CALENDAR_PATH = os.path.join(DOCS_DIR, ".calendar-data.json")
+NEWS_PATH = os.path.join(DOCS_DIR, ".news-data.json")
+NEWS_ASSETS_DIR = os.path.join(DOCS_DIR, "assets", "novidades")
 
 # Nome (sem acento, sem diferenciar maiúsculas/minúsculas) que uma planilha do
 # Drive precisa ter, dentro de uma pasta de categoria (ex: Deploy), para virar
 # um calendário de eventos no hub em vez de um documento comum.
 CALENDAR_SHEET_NAMES = {"calendario"}
+
+# Nome (sem acento, sem diferenciar maiúsculas/minúsculas) que a pasta com o
+# feed da página inicial precisa ter, direto na raiz da pasta sincronizada.
+NEWS_FOLDER_NAMES = {"novidades"}
+
+# Nome que a planilha com o conteúdo das notícias precisa ter, dentro da
+# pasta "Novidades".
+NEWS_SHEET_NAMES = {"novidades"}
 
 DATE_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
 
@@ -85,6 +101,17 @@ def is_calendar_sheet(name: str) -> bool:
     base, _ = os.path.splitext(name)
     normalized = strip_accents(base).strip().lower()
     return normalized in CALENDAR_SHEET_NAMES
+
+
+def is_news_folder(name: str) -> bool:
+    normalized = strip_accents(name).strip().lower()
+    return normalized in NEWS_FOLDER_NAMES
+
+
+def is_news_sheet(name: str) -> bool:
+    base, _ = os.path.splitext(name)
+    normalized = strip_accents(base).strip().lower()
+    return normalized in NEWS_SHEET_NAMES
 
 
 def parse_calendar_date(raw: str):
@@ -139,6 +166,83 @@ def parse_calendar_csv(csv_text: str):
         if link:
             entry["link"] = link
         entries.append(entry)
+    return entries
+
+
+def parse_news_csv(csv_text: str):
+    """Lê o CSV exportado da planilha 'Novidades' e devolve a lista de
+    notícias do feed da página inicial: {"date", "tag", "title", "desc",
+    "image", "items": [...], "link"}.
+
+    Colunas esperadas (em qualquer ordem, com ou sem acento): Data,
+    Categoria, Título, Descrição, Imagem, Itens, Link (Imagem, Itens e Link
+    são opcionais).
+
+    - Imagem: nome de um arquivo de imagem solto na mesma pasta "Novidades"
+      (ele é baixado para docs/assets/novidades/), ou uma URL completa.
+    - Itens: opcional, vira uma caixa com lista dentro do card. Cada linha
+      da célula (Alt+Enter na planilha para quebrar linha) vira um item; uma
+      linha no formato "Título — resto do texto" (ou "Título: resto") fica
+      com o título em negrito no hub.
+    """
+    rows = list(csv.reader(io.StringIO(csv_text)))
+    if not rows:
+        return []
+
+    header = [strip_accents(h).strip().lower() for h in rows[0]]
+    col_index = {}
+    for idx, h in enumerate(header):
+        if h in ("data", "date"):
+            col_index["date"] = idx
+        elif h in ("categoria", "tag", "categoria/tag"):
+            col_index["tag"] = idx
+        elif h in ("titulo", "title"):
+            col_index["title"] = idx
+        elif h in ("descricao", "desc", "description"):
+            col_index["desc"] = idx
+        elif h in ("imagem", "image", "capa"):
+            col_index["image"] = idx
+        elif h in ("itens", "items", "lista"):
+            col_index["items"] = idx
+        elif h in ("link", "url"):
+            col_index["link"] = idx
+
+    def get(row, key):
+        idx = col_index.get(key)
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx].strip()
+
+    entries = []
+    for row in rows[1:]:
+        if not any(cell.strip() for cell in row):
+            continue
+        date_str = parse_calendar_date(get(row, "date"))
+        title = get(row, "title")
+        if not date_str or not title:
+            continue
+
+        image = get(row, "image")
+        if image and "://" not in image:
+            image = f"assets/novidades/{safe_name(image)}"
+
+        items_raw = get(row, "items")
+        items = [line.strip() for line in items_raw.splitlines() if line.strip()]
+
+        entry = {
+            "date": date_str,
+            "tag": get(row, "tag"),
+            "title": title,
+            "desc": get(row, "desc"),
+            "image": image,
+            "items": items,
+        }
+        link = get(row, "link")
+        if link:
+            entry["link"] = link
+        entries.append(entry)
+
+    entries.sort(key=lambda e: e["date"], reverse=True)
     return entries
 
 
@@ -224,7 +328,58 @@ def sync_calendar_sheet(service, file_id, name, category, calendar_data, stats):
         print(f"  aviso: não consegui ler a planilha de calendário '{name}' em {category}: {exc}")
 
 
-def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, category=None):
+def sync_news_folder(service, folder_id, manifest, stats, news_data):
+    """Lê a pasta 'Novidades' inteira: a planilha 'Novidades' dentro dela
+    vira o feed da página inicial (acumulado em news_data), e qualquer outro
+    arquivo (as imagens de capa) é baixado para docs/assets/novidades/ em vez
+    de aparecer como documento comum."""
+    for item in list_children(service, folder_id):
+        file_id = item["id"]
+        name = safe_name(item["name"])
+        mime_type = item["mimeType"]
+        modified_time = item.get("modifiedTime", "")
+
+        if mime_type == SPREADSHEET_MIME and is_news_sheet(item["name"]):
+            try:
+                request = service.files().export_media(fileId=file_id, mimeType="text/csv")
+                buffer = io.BytesIO()
+                downloader = MediaIoBaseDownload(buffer, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                csv_text = buffer.getvalue().decode("utf-8-sig")
+                entries = parse_news_csv(csv_text)
+                news_data.extend(entries)
+                stats["news"] = stats.get("news", 0) + 1
+                print(f"  novidades lidas: {name} ({len(entries)} notícias)")
+            except Exception as exc:  # nunca deixa o feed quebrar a sincronização
+                print(f"  aviso: não consegui ler a planilha de novidades '{name}': {exc}")
+            continue
+
+        if mime_type == FOLDER_MIME:
+            # não esperamos subpastas dentro de "Novidades"; ignora.
+            print(f"  aviso: ignorando subpasta inesperada dentro de Novidades: {name}")
+            continue
+
+        # qualquer outro arquivo solto na pasta "Novidades" é tratado como
+        # imagem de capa (ou outro asset) referenciado pela coluna Imagem.
+        cached = manifest.get(file_id)
+        dest_path = os.path.join(NEWS_ASSETS_DIR, name)
+        if cached and cached.get("modifiedTime") == modified_time and os.path.exists(dest_path):
+            stats["unchanged"] += 1
+            continue
+
+        actual_path = download_file(service, file_id, mime_type, dest_path)
+        manifest[file_id] = {
+            "name": name,
+            "path": os.path.relpath(actual_path, DOCS_DIR),
+            "modifiedTime": modified_time,
+        }
+        stats["updated"] += 1
+        print(f"  sincronizado (novidades): {os.path.relpath(actual_path, DOCS_DIR)}")
+
+
+def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, news_data, category=None):
     os.makedirs(local_dir, exist_ok=True)
     seen_ids = set()
 
@@ -236,6 +391,12 @@ def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, c
         seen_ids.add(file_id)
 
         if mime_type == FOLDER_MIME:
+            if local_dir == DOCS_DIR and is_news_folder(item["name"]):
+                # A pasta "Novidades" na raiz não é uma categoria comum: ela
+                # alimenta o feed da página inicial (ver sync_news_folder).
+                sync_news_folder(service, file_id, manifest, stats, news_data)
+                continue
+
             # Uma pasta logo dentro da raiz sincronizada é uma categoria
             # (Documentos/Requisitos/Deploy); dentro dela, a categoria se
             # mantém a mesma nas subpastas mais profundas.
@@ -247,6 +408,7 @@ def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, c
                 manifest,
                 stats,
                 calendar_data,
+                news_data,
                 category=child_category,
             )
             continue
@@ -287,19 +449,25 @@ def main():
     manifest = load_manifest()
     stats = {"updated": 0, "unchanged": 0}
     calendar_data = {}
+    news_data = []
 
     print("Sincronizando Google Drive -> docs/ ...")
-    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats, calendar_data)
+    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats, calendar_data, news_data)
     save_manifest(manifest)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     with open(CALENDAR_PATH, "w", encoding="utf-8") as f:
         json.dump(calendar_data, f, ensure_ascii=False, indent=2, sort_keys=True)
 
+    news_data.sort(key=lambda e: e["date"], reverse=True)
+    with open(NEWS_PATH, "w", encoding="utf-8") as f:
+        json.dump(news_data, f, ensure_ascii=False, indent=2)
+
     print(f"Concluído. Atualizados: {stats['updated']}, sem mudança: {stats['unchanged']}.")
     if calendar_data:
         resumo = ", ".join(f"{cat} ({len(evts)})" for cat, evts in calendar_data.items())
         print(f"Calendários encontrados: {resumo}")
+    print(f"Notícias na página inicial: {len(news_data)}.")
 
 
 if __name__ == "__main__":
