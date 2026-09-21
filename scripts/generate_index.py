@@ -1153,7 +1153,10 @@ def build_categories():
             full = os.path.join(DOCS_DIR, entry)
             if os.path.isdir(full) and strip_accents(entry).lower() == strip_accents(cat).lower():
                 matched_dirs.add(entry)
-                tree = collect_tree(full)
+                # href_prefix precisa começar com o nome da própria pasta de
+                # categoria (ex: "Requisitos/"), já que os links são
+                # relativos a docs/index.html, não à pasta da categoria.
+                tree = collect_tree(full, entry + "/")
                 by_category[cat]["items"] = tree["items"]
                 by_category[cat]["folders"] = tree["folders"]
 
