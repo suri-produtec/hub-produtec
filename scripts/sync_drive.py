@@ -10,6 +10,11 @@ Sincroniza uma pasta do Google Drive para dentro deste repositório (pasta docs/
   organização que vocês já usam no Drive.
 - Um manifesto (docs/.sync-manifest.json) guarda o `modifiedTime` de cada
   arquivo já sincronizado, para não baixar de novo o que não mudou.
+- Arquivos que somem do Drive, ou que são movidos/renomeados lá (ex: tirados
+  de uma pasta e colocados em outra), têm a cópia antiga apagada de docs/ no
+  fim da sincronização — nada fica "fantasma" depois de uma reorganização no
+  Drive (ver cleanup_stale_files()). Os assets manuais (logo, ícones de
+  categoria em docs/assets/) nunca são tocados por essa limpeza.
 - Uma planilha do Google chamada "Calendário", dentro de uma pasta de
   categoria (Documentos/Requisitos/Deploy), vira um calendário de eventos
   no hub em vez de um documento comum (ver docs/.calendar-data.json).
@@ -84,6 +89,15 @@ NEWS_FOLDER_NAMES = {"novidades"}
 NEWS_SHEET_NAMES = {"novidades"}
 
 DATE_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
+
+# Arquivos na raiz de docs/ que nunca são apagados pela limpeza (são gerados
+# por generate_index.py ou pelo próprio sync, não vêm do Drive).
+PROTECTED_FILES = {".sync-manifest.json", ".calendar-data.json", ".news-data.json", "index.html"}
+
+# Prefixo de caminho (relativo a docs/) que nunca é tocado pela limpeza: são
+# os assets visuais colocados manualmente (logo, ícones de categoria), não
+# sincronizados do Drive. docs/assets/novidades/ é a exceção — vem do Drive.
+PROTECTED_ASSET_PREFIX = "assets" + os.sep
 
 
 def strip_accents(s: str) -> str:
@@ -307,6 +321,50 @@ def download_file(service, file_id, mime_type, dest_path):
     return dest_path
 
 
+def is_protected_path(rel_path: str) -> bool:
+    """Arquivos que a limpeza nunca deve apagar: os gerados/registro na raiz
+    de docs/, e os assets visuais manuais em docs/assets/ (exceto
+    docs/assets/novidades/, que vem do Drive e segue a limpeza normal)."""
+    if rel_path in PROTECTED_FILES:
+        return True
+    if rel_path.startswith(PROTECTED_ASSET_PREFIX):
+        rest = rel_path[len(PROTECTED_ASSET_PREFIX):]
+        if not rest.startswith("novidades" + os.sep):
+            return True
+    return False
+
+
+def cleanup_stale_files(expected_paths, manifest, stats):
+    """Apaga de docs/ qualquer arquivo vindo do Drive que não foi visto nesta
+    sincronização — porque foi removido do Drive, ou porque foi movido para
+    outro lugar lá (o que muda o caminho esperado, deixando uma cópia velha
+    órfã). Sem isso, itens reorganizados no Drive ficam duplicados para
+    sempre (a cópia nova E a antiga, geralmente em "Outros")."""
+    removed = []
+    for root, dirs, files in os.walk(DOCS_DIR, topdown=False):
+        for fname in files:
+            full = os.path.join(root, fname)
+            rel = os.path.relpath(full, DOCS_DIR)
+            if is_protected_path(rel):
+                continue
+            if rel not in expected_paths:
+                os.remove(full)
+                removed.append(rel)
+        # remove diretórios que ficaram vazios (exceto a própria docs/ e assets/)
+        if root != DOCS_DIR and not os.listdir(root):
+            os.rmdir(root)
+
+    if removed:
+        stats["removed"] = len(removed)
+        for rel in removed:
+            print(f"  removido (não existe mais no Drive nesse caminho): {rel}")
+
+    # limpa do manifesto qualquer entrada cujo arquivo não sobreviveu à limpeza
+    for file_id in list(manifest.keys()):
+        if manifest[file_id].get("path") not in expected_paths:
+            del manifest[file_id]
+
+
 def sync_calendar_sheet(service, file_id, name, category, calendar_data, stats):
     """Exporta uma planilha 'Calendário' como CSV e guarda os eventos lidos
     dela em calendar_data[category], em vez de baixá-la como documento."""
@@ -328,7 +386,7 @@ def sync_calendar_sheet(service, file_id, name, category, calendar_data, stats):
         print(f"  aviso: não consegui ler a planilha de calendário '{name}' em {category}: {exc}")
 
 
-def sync_news_folder(service, folder_id, manifest, stats, news_data):
+def sync_news_folder(service, folder_id, manifest, stats, news_data, expected_paths):
     """Lê a pasta 'Novidades' inteira: a planilha 'Novidades' dentro dela
     vira o feed da página inicial (acumulado em news_data), e qualquer outro
     arquivo (as imagens de capa) é baixado para docs/assets/novidades/ em vez
@@ -367,34 +425,35 @@ def sync_news_folder(service, folder_id, manifest, stats, news_data):
         dest_path = os.path.join(NEWS_ASSETS_DIR, name)
         if cached and cached.get("modifiedTime") == modified_time and os.path.exists(dest_path):
             stats["unchanged"] += 1
+            expected_paths.add(os.path.relpath(dest_path, DOCS_DIR))
             continue
 
         actual_path = download_file(service, file_id, mime_type, dest_path)
+        rel_path = os.path.relpath(actual_path, DOCS_DIR)
         manifest[file_id] = {
             "name": name,
-            "path": os.path.relpath(actual_path, DOCS_DIR),
+            "path": rel_path,
             "modifiedTime": modified_time,
         }
+        expected_paths.add(rel_path)
         stats["updated"] += 1
-        print(f"  sincronizado (novidades): {os.path.relpath(actual_path, DOCS_DIR)}")
+        print(f"  sincronizado (novidades): {rel_path}")
 
 
-def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, news_data, category=None):
+def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, news_data, expected_paths, category=None):
     os.makedirs(local_dir, exist_ok=True)
-    seen_ids = set()
 
     for item in list_children(service, folder_id):
         file_id = item["id"]
         name = safe_name(item["name"])
         mime_type = item["mimeType"]
         modified_time = item.get("modifiedTime", "")
-        seen_ids.add(file_id)
 
         if mime_type == FOLDER_MIME:
             if local_dir == DOCS_DIR and is_news_folder(item["name"]):
                 # A pasta "Novidades" na raiz não é uma categoria comum: ela
                 # alimenta o feed da página inicial (ver sync_news_folder).
-                sync_news_folder(service, file_id, manifest, stats, news_data)
+                sync_news_folder(service, file_id, manifest, stats, news_data, expected_paths)
                 continue
 
             # Uma pasta logo dentro da raiz sincronizada é uma categoria
@@ -409,6 +468,7 @@ def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, n
                 stats,
                 calendar_data,
                 news_data,
+                expected_paths,
                 category=child_category,
             )
             continue
@@ -426,18 +486,19 @@ def sync_folder(service, folder_id, local_dir, manifest, stats, calendar_data, n
 
         if cached and cached.get("modifiedTime") == modified_time and os.path.exists(dest_path):
             stats["unchanged"] += 1
+            expected_paths.add(os.path.relpath(dest_path, DOCS_DIR))
             continue
 
         actual_path = download_file(service, file_id, mime_type, os.path.join(local_dir, name))
+        rel_path = os.path.relpath(actual_path, DOCS_DIR)
         manifest[file_id] = {
             "name": name,
-            "path": os.path.relpath(actual_path, DOCS_DIR),
+            "path": rel_path,
             "modifiedTime": modified_time,
         }
+        expected_paths.add(rel_path)
         stats["updated"] += 1
-        print(f"  sincronizado: {os.path.relpath(actual_path, DOCS_DIR)}")
-
-    return seen_ids
+        print(f"  sincronizado: {rel_path}")
 
 
 def main():
@@ -450,9 +511,12 @@ def main():
     stats = {"updated": 0, "unchanged": 0}
     calendar_data = {}
     news_data = []
+    expected_paths = set()
 
     print("Sincronizando Google Drive -> docs/ ...")
-    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats, calendar_data, news_data)
+    sync_folder(service, root_folder_id, DOCS_DIR, manifest, stats, calendar_data, news_data, expected_paths)
+
+    cleanup_stale_files(expected_paths, manifest, stats)
     save_manifest(manifest)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
@@ -463,7 +527,7 @@ def main():
     with open(NEWS_PATH, "w", encoding="utf-8") as f:
         json.dump(news_data, f, ensure_ascii=False, indent=2)
 
-    print(f"Concluído. Atualizados: {stats['updated']}, sem mudança: {stats['unchanged']}.")
+    print(f"Concluído. Atualizados: {stats['updated']}, sem mudança: {stats['unchanged']}, removidos: {stats.get('removed', 0)}.")
     if calendar_data:
         resumo = ", ".join(f"{cat} ({len(evts)})" for cat, evts in calendar_data.items())
         print(f"Calendários encontrados: {resumo}")
