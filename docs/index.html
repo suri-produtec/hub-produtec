@@ -395,6 +395,42 @@
   .card .path { display: block; margin-top: 5px; font-size: 0.86rem; color: var(--card-muted); word-break: break-word; }
   .empty { color: var(--page-muted); font-style: italic; }
 
+  .card.folder-card { border-color: var(--border); }
+  .card.folder-card:hover { border-color: var(--accent); }
+  .card.folder-card .name { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+  .card.folder-card .folder-count {
+    flex-shrink: 0;
+    background: var(--bg);
+    color: var(--card-muted);
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  /* --- Breadcrumb de navegação por subpastas --- */
+  #breadcrumb {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: -10px 0 20px;
+  }
+  #breadcrumb button {
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--card-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+  #breadcrumb button:last-child { color: var(--accent); }
+  #breadcrumb button:hover { background: var(--accent-soft); color: var(--accent); }
+  #breadcrumb .crumb-sep { color: var(--card-muted); }
+
   /* --- Menu inicial (cards grandes por categoria) --- */
   .home-grid {
     display: grid;
@@ -547,6 +583,7 @@
     </div>
     <div id="cal-wrap"></div>
     <div id="news-feed"></div>
+    <div id="breadcrumb"></div>
     <div class="cards" id="cards"></div>
     <footer>Atualizado automaticamente pelo GitHub Actions a cada sincronização com o Google Drive.</footer>
   </div>
@@ -563,7 +600,7 @@
   </div>
 
   <script>
-    const DATA = [{"category": "Documentos", "icon": "assets/icon-documentos.png", "desc": "Guias, políticas e materiais de referência do time.", "accent": "#4a54ff", "items": [{"name": "Configuração da integração TOTVS WinThor.pdf", "href": "Configuração da integração TOTVS WinThor.pdf", "subpath": "", "icon": "📄"}], "calendar": []}, {"category": "Requisitos", "icon": "assets/icon-requisitos.png", "desc": "Especificações e requisitos de produto para squads e stakeholders.", "accent": "#2e1de8", "items": [], "calendar": []}, {"category": "Deploy", "icon": "assets/icon-deploy.png", "desc": "Checklists, releases e o calendário de eventos técnicos.", "accent": "#25d366", "items": [], "calendar": [{"date": "2026-09-14", "desc": "Corrigimos uma falha no checkout de pedidos.", "link": "https://sejasuri.atlassian.net/browse/SDK-520", "title": "[SDK-520] Checkout não exibia descontos"}]}, {"category": "Outros", "icon": "assets/icon-outros.png", "desc": "Arquivos que não se encaixam nas categorias acima.", "accent": "#000f9b", "items": [{"name": "Configuração da integração TOTVS WinThor.pdf", "href": "Configuração da integração TOTVS WinThor.pdf", "subpath": "", "icon": "📄"}, {"name": "Novidades.xlsx", "href": "Novidades/Novidades.xlsx", "subpath": "Novidades", "icon": "📊"}], "calendar": []}];
+    const DATA = [{"category": "Documentos", "icon": "assets/icon-documentos.png", "desc": "Guias, políticas e materiais de referência do time.", "accent": "#4a54ff", "items": [{"name": "Configuração da integração TOTVS WinThor.pdf", "href": "Configuração da integração TOTVS WinThor.pdf", "icon": "📄"}], "folders": [], "count": 1, "calendar": []}, {"category": "Requisitos", "icon": "assets/icon-requisitos.png", "desc": "Especificações e requisitos de produto para squads e stakeholders.", "accent": "#2e1de8", "items": [], "folders": [], "count": 0, "calendar": []}, {"category": "Deploy", "icon": "assets/icon-deploy.png", "desc": "Checklists, releases e o calendário de eventos técnicos.", "accent": "#25d366", "items": [], "folders": [], "count": 0, "calendar": [{"date": "2026-09-14", "desc": "Corrigimos uma falha no checkout de pedidos.", "link": "https://sejasuri.atlassian.net/browse/SDK-520", "title": "[SDK-520] Checkout não exibia descontos"}]}];
     const NEWS = [{"date": "2026-09-21", "tag": "Vtex", "title": "VA/VR agora funciona na integração VTEX", "desc": "Lojas que usam bots VTEX já podem configurar métodos de pagamento customizados pra Vale Alimentação e Vale Refeição — funcionalidade solicitada pela Casas Pedro.", "image": "assets/novidades/vtex-cover.png", "items": [], "link": "https://sejasuri.atlassian.net/browse/SDK-589"}];
 
     const OFFICE_EXTS = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
@@ -582,6 +619,7 @@
     const modalClose = document.getElementById('modal-close');
 
     let active = 'home';
+    let folderPath = []; // trilha de subpastas dentro da categoria atual (Documentos > Políticas > ...)
     const calState = {}; // estado (mês/ano/seleção) de cada calendário, por categoria
     const MONTH_NAMES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
@@ -759,8 +797,45 @@
 
     function goTo(category) {
       active = category;
+      folderPath = [];
       searchEl.value = '';
       render();
+    }
+
+    // Acha o nó da árvore (categoria ou uma de suas subpastas) correspondente
+    // à trilha atual em folderPath. Se a trilha não bater mais (ex: pasta
+    // sumiu numa sincronização), volta pra raiz da categoria.
+    function getNode(section) {
+      let node = section;
+      for (const name of folderPath) {
+        const next = (node.folders || []).find(f => f.name === name);
+        if (!next) { folderPath = []; return section; }
+        node = next;
+      }
+      return node;
+    }
+
+    function renderBreadcrumb(section) {
+      const el = document.getElementById('breadcrumb');
+      if (!folderPath.length) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+      }
+      el.style.display = 'flex';
+      let html = '<button type="button" data-idx="-1">' + escapeHtml(section.category) + '</button>';
+      folderPath.forEach((name, idx) => {
+        html += '<span class="crumb-sep">/</span><button type="button" data-idx="' + idx + '">' + escapeHtml(name) + '</button>';
+      });
+      el.innerHTML = html;
+      el.querySelectorAll('button').forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.idx, 10);
+          folderPath = idx === -1 ? [] : folderPath.slice(0, idx + 1);
+          searchEl.value = '';
+          render();
+        };
+      });
     }
 
     function renderNav() {
@@ -781,7 +856,7 @@
         btn.className = 'nav-item' + (section.category === active ? ' active' : '');
         btn.innerHTML = '<img class="nav-icon" src="' + section.icon + '" alt="">' +
           '<span class="nav-label">' + section.category + '</span>' +
-          '<span class="count">' + section.items.length + '</span>';
+          '<span class="count">' + section.count + '</span>';
         btn.onclick = () => goTo(section.category);
         nav.appendChild(btn);
       });
@@ -874,25 +949,43 @@
 
       const section = DATA.find(s => s.category === active);
       if (!section) return;
-      titleEl.textContent = section.category;
-      subtitleEl.textContent = section.items.length + (section.items.length === 1 ? ' documento' : ' documentos');
 
-      renderCalendar(section);
+      const node = getNode(section);
+      renderBreadcrumb(section);
+
+      titleEl.textContent = folderPath.length ? folderPath[folderPath.length - 1] : section.category;
+      subtitleEl.textContent = node.count + (node.count === 1 ? ' documento' : ' documentos');
+
+      if (folderPath.length === 0) {
+        renderCalendar(section);
+      } else {
+        const calWrap = document.getElementById('cal-wrap');
+        calWrap.style.display = 'none';
+        calWrap.innerHTML = '';
+      }
 
       const query = searchEl.value.trim().toLowerCase();
-      const items = section.items.filter(it => it.name.toLowerCase().includes(query));
+      const folders = (node.folders || []).filter(f => f.name.toLowerCase().includes(query));
+      const items = (node.items || []).filter(it => it.name.toLowerCase().includes(query));
 
       cardsEl.innerHTML = '';
-      if (!items.length) {
+      if (!folders.length && !items.length) {
         cardsEl.innerHTML = '<p class="empty">Nenhum documento encontrado.</p>';
         return;
       }
+      folders.forEach(f => {
+        const btn = document.createElement('button');
+        btn.className = 'card folder-card';
+        btn.innerHTML = '<span class="icon">📁</span>' +
+          '<span class="name">' + escapeHtml(f.name) + '<span class="folder-count">' + f.count + '</span></span>';
+        btn.onclick = () => { folderPath = folderPath.concat([f.name]); searchEl.value = ''; render(); };
+        cardsEl.appendChild(btn);
+      });
       items.forEach(it => {
         const btn = document.createElement('button');
         btn.className = 'card';
         btn.innerHTML = '<span class="icon">' + it.icon + '</span>' +
-          '<span class="name">' + it.name + '</span>' +
-          (it.subpath ? '<span class="path">' + it.subpath + '</span>' : '');
+          '<span class="name">' + escapeHtml(it.name) + '</span>';
         btn.onclick = () => openPreview(it);
         cardsEl.appendChild(btn);
       });
