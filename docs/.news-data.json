@@ -1,5 +1,14 @@
 [
   {
+    "date": "2026-10-07",
+    "tag": "Vtex",
+    "title": "Produtos por metragem agora aceitam casas decimais",
+    "desc": "Lojas VTEX que vendem pisos e revestimentos já mostram quantidade e preço por m² no catálogo, no carrinho e no resumo do pedido — igual ao site da loja",
+    "image": "assets/novidades/destaque_vtex_metragem_1.png",
+    "items": [],
+    "link": "https://sejasuri.atlassian.net/browse/SDK-860"
+  },
+  {
     "date": "2026-09-21",
     "tag": "Vtex",
     "title": "VA/VR agora funciona na integração VTEX",
