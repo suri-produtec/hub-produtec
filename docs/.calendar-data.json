@@ -59,6 +59,17 @@
       "desc": "Corrigimos um problema em que pedidos pagos por PIX ou cartão não eram atualizados no Suri Shop depois que a loja confirmava o pagamento. O pedido ficava parado no status Recebido, o contato não recebia a confirmação de pagamento e a venda não aparecia no relatório de vendas do dia. O problema afetou pedidos feitos entre 20 e 23 de setembro, e esses pedidos já foram reprocessados.",
       "link": "https://sejasuri.atlassian.net/browse/SDK-875",
       "title": "Shop - Pedido pago fica como “Recebido” e o contato não recebe a confirmação"
+    },
+    {
+      "date": "2026-09-24",
+      "desc": "Corrigimos um problema na tela de Conversas do Portal: quando um atendimento era iniciado ou transferido, a conversa continuava aparecendo na fila anterior (Esperando, Em Atendimento ou Automática) até o atendente trocar de aba ou recarregar a página. O contador da aba mostrava o número certo, mas a lista logo abaixo não batia com ele. Com isso, o atendente podia ver a conversa na fila errada e iniciar de novo um atendimento que outra pessoa já estava fazendo. Agora as listas se atualizam em tempo real, também quando quem faz a mudança é outro atendente.",
+      "link": "https://sejasuri.atlassian.net/browse/SDK-763",
+      "title": "Conversa não muda de fila sozinha na tela de Conversas"
+    },
+    {
+      "date": "2026-09-26",
+      "desc": "Corrigimos dois problemas no Webchat. Textos marcados em negrito pelo bot, como os rótulos Rua, Bairro, Cidade e Estado na confirmação de endereço, apareciam em itálico ou sem formatação. Além disso, ao tocar em “Ver detalhes” de um produto, o cliente recebia o nome e a descrição, mas a foto do produto não era enviada. Agora as mensagens do Webchat mostram o negrito e a foto do produto do mesmo jeito que no WhatsApp.",
+      "title": "Negrito não aparece e foto do produto não é enviada no Webchat"
     }
   ]
 }
