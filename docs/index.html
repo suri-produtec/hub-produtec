@@ -205,6 +205,9 @@
     font-size: 0.95rem;
   }
   .search::placeholder { color: var(--card-muted); }
+  /* Evita cursor de texto piscando em títulos/textos que não são editáveis */
+  body { caret-color: transparent; }
+  input, textarea, [contenteditable="true"] { caret-color: auto; }
   .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* --- Calendário de eventos (por categoria) --- */
@@ -395,6 +398,11 @@
   .card .name { display: block; margin-top: 12px; font-size: 1.02rem; font-weight: 600; word-break: break-word; }
   .card .path { display: block; margin-top: 5px; font-size: 0.86rem; color: var(--card-muted); word-break: break-word; }
   .empty { color: var(--page-muted); font-style: italic; }
+  .card.flash, .updates-cal-calendar.flash { animation: flash 1.8s ease; }
+  @keyframes flash {
+    0%, 60% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    100% { box-shadow: none; }
+  }
 
   .card.folder-card { border-color: var(--border); }
   .card.folder-card:hover { border-color: var(--accent); }
@@ -580,7 +588,7 @@
         <h2 id="section-title">Documentos</h2>
         <p id="section-subtitle"></p>
       </div>
-      <input class="search" id="search" type="text" placeholder="Buscar nesta seção...">
+      <input class="search" id="search" type="text" placeholder="Buscar em todo o hub...">
     </div>
     <div id="cal-wrap"></div>
     <div id="news-feed"></div>
@@ -919,11 +927,125 @@
       }).join('');
     }
 
+    // Normaliza texto pra busca: minúsculas e sem acentos ("Políticas" == "politicas").
+    function norm(s) {
+      return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    }
+
+    // Percorre o hub inteiro (todas as categorias e subpastas) e devolve
+    // pastas e documentos cujo nome contém a busca.
+    function searchAll(query) {
+      const q = norm(query);
+      const results = [];
+      function walk(node, category, path) {
+        (node.folders || []).forEach(f => {
+          const fp = path.concat([f.name]);
+          if (norm(f.name).includes(q)) results.push({ type: 'folder', category, path: fp, folder: f });
+          walk(f, category, fp);
+        });
+        (node.items || []).forEach(it => {
+          if (norm(it.name).includes(q)) results.push({ type: 'item', category, path, item: it });
+        });
+      }
+      DATA.forEach(section => {
+        walk(section, section.category, []);
+        (section.calendar || []).forEach(ev => {
+          if (norm(ev.title).includes(q) || norm(ev.desc).includes(q)) {
+            results.push({ type: 'event', category: section.category, path: [], event: ev });
+          }
+        });
+      });
+      return results;
+    }
+
+    function renderSearch(query) {
+      mainHeaderEl.classList.remove('home-mode');
+      document.getElementById('news-feed').style.display = 'none';
+      const calWrap = document.getElementById('cal-wrap');
+      calWrap.style.display = 'none';
+      calWrap.innerHTML = '';
+      const bc = document.getElementById('breadcrumb');
+      bc.style.display = 'none';
+      bc.innerHTML = '';
+      cardsEl.style.display = '';
+      cardsEl.className = 'cards';
+
+      const results = searchAll(query);
+      titleEl.textContent = 'Resultados da busca';
+      subtitleEl.textContent = results.length + (results.length === 1 ? ' resultado' : ' resultados') + ' para "' + query + '"';
+
+      cardsEl.innerHTML = '';
+      if (!results.length) {
+        cardsEl.innerHTML = '<p class="empty">Nenhum documento encontrado em todo o hub.</p>';
+        return;
+      }
+      results.forEach(r => {
+        const btn = document.createElement('button');
+        const location = [r.category].concat(r.type === 'folder' ? r.path.slice(0, -1) : r.path).join(' / ');
+        if (r.type === 'folder') {
+          btn.className = 'card folder-card';
+          btn.innerHTML = '<span class="icon">📁</span>' +
+            '<span class="name">' + escapeHtml(r.folder.name) + '<span class="folder-count">' + r.folder.count + '</span></span>' +
+            '<span class="path">' + escapeHtml(location) + '</span>';
+          btn.onclick = () => openFolder(r.category, r.path);
+        } else if (r.type === 'event') {
+          btn.className = 'card';
+          btn.innerHTML = '<span class="icon">📅</span>' +
+            '<span class="name">' + escapeHtml(r.event.title) + '</span>' +
+            '<span class="path">' + escapeHtml(r.category + ' / Calendário · ' + formatDateLong(r.event.date)) + '</span>';
+          btn.onclick = () => openCalendarDay(r.category, r.event.date);
+        } else {
+          btn.className = 'card';
+          btn.innerHTML = '<span class="icon">' + r.item.icon + '</span>' +
+            '<span class="name">' + escapeHtml(r.item.name) + '</span>' +
+            '<span class="path">' + escapeHtml(location) + '</span>';
+          btn.onclick = () => openFolder(r.category, r.path, r.item.href);
+        }
+        cardsEl.appendChild(btn);
+      });
+    }
+
+    // Sai da busca e abre a categoria/pasta; se vier um href, destaca o card do documento.
+    function openFolder(category, path, highlightHref) {
+      active = category;
+      folderPath = path.slice();
+      searchEl.value = '';
+      render();
+      window.scrollTo({ top: 0 });
+      if (highlightHref) {
+        const card = cardsEl.querySelector('[data-href="' + CSS.escape(highlightHref) + '"]');
+        if (card) flash(card);
+      }
+    }
+
+    // Sai da busca e abre o calendário da categoria já no mês e dia do evento.
+    function openCalendarDay(category, dateStr) {
+      const section = DATA.find(s => s.category === category);
+      if (!section) return;
+      const state = ensureCalState(section);
+      const parts = dateStr.split('-');
+      state.y = parseInt(parts[0], 10);
+      state.m = parseInt(parts[1], 10) - 1;
+      state.selected = dateStr;
+      active = category;
+      folderPath = [];
+      searchEl.value = '';
+      render();
+      const cal = document.querySelector('#cal-wrap .updates-cal-calendar');
+      if (cal) flash(cal);
+    }
+
+    function flash(el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+    }
+
     function renderHome() {
       mainHeaderEl.classList.add('home-mode');
       titleEl.textContent = 'Novidades';
       subtitleEl.textContent = 'As últimas atualizações do produto, mais recentes primeiro.';
-      searchEl.style.display = 'none';
       cardsEl.style.display = 'none';
       cardsEl.innerHTML = '';
 
@@ -937,6 +1059,13 @@
     function render() {
       renderNav();
       mainHeaderEl.classList.remove('home-mode');
+      searchEl.style.display = '';
+
+      const globalQuery = searchEl.value.trim();
+      if (globalQuery) {
+        renderSearch(globalQuery);
+        return;
+      }
 
       if (active === 'home') {
         renderHome();
@@ -965,9 +1094,8 @@
         calWrap.innerHTML = '';
       }
 
-      const query = searchEl.value.trim().toLowerCase();
-      const folders = (node.folders || []).filter(f => f.name.toLowerCase().includes(query));
-      const items = (node.items || []).filter(it => it.name.toLowerCase().includes(query));
+      const folders = node.folders || [];
+      const items = node.items || [];
 
       cardsEl.innerHTML = '';
       if (!folders.length && !items.length) {
@@ -985,6 +1113,7 @@
       items.forEach(it => {
         const btn = document.createElement('button');
         btn.className = 'card';
+        btn.dataset.href = it.href;
         btn.innerHTML = '<span class="icon">' + it.icon + '</span>' +
           '<span class="name">' + escapeHtml(it.name) + '</span>';
         btn.onclick = () => openPreview(it);
