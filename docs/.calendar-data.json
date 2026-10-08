@@ -53,6 +53,12 @@
       "desc": "Corrigimos a criação de listas de produtos sugeridas, que retornava vazia para clientes de providers diferentes de Suri e vTEX; agora a busca no catálogo também funciona para Shopify, Linx e Neomode. A Mercadapp segue como exceção, por depender de seleção de vendedor e método de entrega ainda não suportados pelo catálogo.",
       "link": "https://sejasuri.atlassian.net/browse/SDK-571",
       "title": "Shop - Listagem de produtos para todos os providers na criação de listas sugeridas"
+    },
+    {
+      "date": "2026-09-23",
+      "desc": "Corrigimos um problema em que pedidos pagos por PIX ou cartão não eram atualizados no Suri Shop depois que a loja confirmava o pagamento. O pedido ficava parado no status Recebido, o contato não recebia a confirmação de pagamento e a venda não aparecia no relatório de vendas do dia. O problema afetou pedidos feitos entre 20 e 23 de setembro, e esses pedidos já foram reprocessados.",
+      "link": "https://sejasuri.atlassian.net/browse/SDK-875",
+      "title": "Shop - Pedido pago fica como “Recebido” e o contato não recebe a confirmação"
     }
   ]
 }
